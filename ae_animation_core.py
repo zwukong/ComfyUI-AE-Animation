@@ -285,9 +285,21 @@ class AERender(io.ComfyNode):
     def _get_value(cls, keyframes: Dict[str, Any], prop: str, time: float, default: float) -> float:
         if prop not in keyframes:
             return default
-        frames = sorted(keyframes[prop], key=lambda k: k.get("time", 0))
+            
+        frames_data = keyframes[prop]
+        if not isinstance(frames_data, list):
+            return default
+            
+        # Filter valid frames that have both 'time' and 'value'
+        frames = []
+        for frame in frames_data:
+            if isinstance(frame, dict) and 'time' in frame and 'value' in frame:
+                frames.append(frame)
+                
         if not frames:
             return default
+            
+        frames = sorted(frames, key=lambda k: k.get("time", 0))
         if time <= frames[0]["time"]:
             return frames[0]["value"]
         if time >= frames[-1]["time"]:
