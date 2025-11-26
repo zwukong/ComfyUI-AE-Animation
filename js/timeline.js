@@ -649,33 +649,35 @@ class AeTimelineView {
             dialog.appendChild(container);
             document.body.appendChild(dialog);
 
-            // Inject critical CSS inline
+            // Inject critical CSS inline - NEW LAYOUT: canvas -> toolbar -> params -> layers+timeline
             const criticalCSS = document.createElement("style");
             criticalCSS.textContent = `
                 .ae-vue-timeline-root { width: 100% !important; height: 100% !important; }
-                .ae-vue-timeline-root .root { display: grid !important; grid-template-columns: 50px 1fr 220px !important; grid-template-rows: 44px 1fr 180px !important; grid-template-areas: "header header header" "left center right" "footer footer footer" !important; width: 100% !important; height: 100% !important; background: #1a1a1a; color: #ddd; font-family: -apple-system, sans-serif; font-size: 12px; box-sizing: border-box; }
-                .ae-vue-timeline-root .header { grid-area: header !important; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: #252525; border-bottom: 1px solid #333; }
-                .ae-vue-timeline-root .header-left, .ae-vue-timeline-root .header-center, .ae-vue-timeline-root .header-right { display: flex; align-items: center; gap: 8px; }
-                .ae-vue-timeline-root .left { grid-area: left !important; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: #222; border-right: 1px solid #333; }
-                .ae-vue-timeline-root .center { grid-area: center !important; display: flex; align-items: center; justify-content: center; background: #111; overflow: hidden; }
-                .ae-vue-timeline-root .right { grid-area: right !important; padding: 12px; background: #222; border-left: 1px solid #333; overflow-y: auto; }
-                .ae-vue-timeline-root .footer { grid-area: footer !important; display: flex; background: #1e1e1e; border-top: 1px solid #333; }
-                .ae-vue-timeline-root .layers { width: 160px; border-right: 1px solid #333; display: flex; flex-direction: column; }
-                .ae-vue-timeline-root .tracks { flex: 1; position: relative; display: flex; flex-direction: column; }
-                .ae-vue-timeline-root .ruler { height: 28px; background: #252525; border-bottom: 1px solid #333; position: relative; }
-                .ae-vue-timeline-root .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid #444; padding-left: 4px; font-size: 10px; color: #666; display: flex; align-items: center; }
+                .ae-vue-timeline-root .root { display: grid !important; grid-template-rows: 1fr 44px 36px 180px !important; grid-template-columns: 1fr !important; width: 100% !important; height: 100% !important; background: #1a1a1a; color: #ddd; font-family: -apple-system, sans-serif; font-size: 12px; box-sizing: border-box; }
+                .ae-vue-timeline-root .canvas-area { display: flex !important; align-items: center; justify-content: center; background: #111; overflow: hidden; }
+                .ae-vue-timeline-root .toolbar-area { display: flex !important; align-items: center; justify-content: center; padding: 0 12px; background: #2a2a2a; border-top: 1px solid #444; border-bottom: 1px solid #444; }
+                .ae-vue-timeline-root .toolbar-center { display: flex; align-items: center; gap: 8px; }
+                .ae-vue-timeline-root .params-area { display: flex !important; align-items: center; justify-content: center; gap: 16px; padding: 0 12px; background: #252525; border-bottom: 1px solid #333; }
+                .ae-vue-timeline-root .param-group { display: flex; align-items: center; gap: 4px; }
+                .ae-vue-timeline-root .param-input { width: 60px; padding: 3px 6px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; color: #fff; font-size: 11px; }
+                .ae-vue-timeline-root .bottom-area { display: flex !important; background: #1e1e1e; }
+                .ae-vue-timeline-root .layers-sidebar { width: 220px; min-width: 220px; border-right: 1px solid #333; display: flex; flex-direction: column; }
+                .ae-vue-timeline-root .timeline-area { flex: 1; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+                .ae-vue-timeline-root .timeline-ruler { height: 28px; min-height: 28px; background: #1a1a1a; border-bottom: 1px solid #444; position: relative; cursor: pointer; margin-left: 60px; }
+                .ae-vue-timeline-root .timeline-ruler .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid #444; padding-left: 4px; font-size: 10px; color: #666; display: flex; align-items: center; user-select: none; }
+                .ae-vue-timeline-root .timeline-tracks { flex: 1; position: relative; overflow-y: auto; overflow-x: hidden; }
+                .ae-vue-timeline-root .track-header { height: 24px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #252525; border-bottom: 1px solid #333; cursor: pointer; }
+                .ae-vue-timeline-root .track-header.active { background: #2d3a4d; }
+                .ae-vue-timeline-root .track-expand { width: 16px; height: 16px; background: none; border: none; color: #888; cursor: pointer; font-size: 8px; padding: 0; }
+                .ae-vue-timeline-root .track-name { font-size: 11px; color: #ccc; }
+                .ae-vue-timeline-root .track-prop { height: 22px; display: flex; align-items: center; background: #1e1e1e; border-bottom: 1px solid #2a2a2a; }
+                .ae-vue-timeline-root .prop-name { width: 60px; min-width: 60px; padding-left: 24px; font-size: 10px; color: #888; }
+                .ae-vue-timeline-root .prop-track { flex: 1; height: 100%; position: relative; cursor: crosshair; }
+                .ae-vue-timeline-root .keyframe { position: absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg); width: 8px; height: 8px; background: #3498db; border: 1px solid #5dade2; cursor: grab; }
+                .ae-vue-timeline-root .keyframe.selected { background: #f1c40f; border-color: #f39c12; box-shadow: 0 0 6px #f1c40f; }
+                .ae-vue-timeline-root .playhead { position: absolute; top: 28px; bottom: 0; width: 2px; background: #e74c3c; z-index: 10; pointer-events: none; margin-left: 60px; }
+                .ae-vue-timeline-root .playhead-top { position: absolute; top: 0; width: 12px; height: 12px; background: #e74c3c; transform: translateX(-50%); clip-path: polygon(0 0, 100% 0, 50% 100%); z-index: 5; }
                 .ae-vue-timeline-root .canvas-preview { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-                .ae-vue-timeline-root .time-indicator { position: absolute; top: 2px; left: 50%; transform: translateX(-50%); background: #e74c3c; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 3px; pointer-events: none; z-index: 11; }
-                .ae-vue-timeline-root .kf:hover { transform: translate(-50%, -50%) rotate(45deg) scale(1.3); background: #5dade2; }
-                .ae-vue-timeline-root .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e74c3c; z-index: 10; pointer-events: none; }
-                .ae-vue-timeline-root .prop-group { margin-bottom: 12px; }
-                .ae-vue-timeline-root .prop-label { color: #888; font-size: 10px; text-transform: uppercase; margin-bottom: 6px; }
-                .ae-vue-timeline-root .prop-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-                .ae-vue-timeline-root .prop-row label { width: 50px; color: #888; font-size: 11px; flex-shrink: 0; }
-                .ae-vue-timeline-root .prop-row input[type="range"] { flex: 1; height: 4px; background: #333; border-radius: 2px; cursor: pointer; }
-                .ae-vue-timeline-root .prop-row input[type="number"] { width: 60px; padding: 3px 5px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; color: #fff; font-size: 11px; }
-                .ae-vue-timeline-root .prop-row input[type="number"].small { width: 45px; }
-                .ae-vue-timeline-root .help-text { margin-top: 16px; padding-top: 12px; border-top: 1px solid #333; color: #555; font-size: 10px; line-height: 1.6; }
             `;
             document.head.appendChild(criticalCSS);
 
@@ -782,29 +784,38 @@ class AeTimelineView {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = "#000";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            this.state.layers.forEach((layer) => {
+            
+            // 1. 先绘制背景层
+            const bgLayer = this.state.layers.find(l => l.type === "background");
+            if (bgLayer) {
+                if (!bgLayer.img && bgLayer.image_data) {
+                    this.#ensureLayerImage(bgLayer);
+                } else if (bgLayer.img) {
+                    ctx.save();
+                    this.#drawBackground(bgLayer);
+                    ctx.restore();
+                }
+            }
+            
+            // 2. 按数组顺序绘制前景层（后面的在上面）
+            this.state.layers.filter(l => l.type !== "background").forEach((layer) => {
                 if (!layer.img && layer.image_data) {
                     this.#ensureLayerImage(layer);
                     return;
                 }
                 if (!layer.img) return;
-                if (!layer.img) return;
                 ctx.save();
-                if (layer.type === "background") {
-                    this.#drawBackground(layer);
-                } else {
-                    ctx.globalAlpha = layer.opacity;
-                    ctx.translate(canvas.width / 2 + layer.x, canvas.height / 2 + layer.y);
-                    ctx.rotate((layer.rotation * Math.PI) / 180);
-                    ctx.scale(layer.scale, layer.scale);
-                    ctx.drawImage(layer.img, -layer.img.width / 2, -layer.img.height / 2);
-                    if (layer.mask_size !== 1) {
-                        ctx.strokeStyle = "#00ff00";
-                        ctx.lineWidth = 2 / layer.scale;
-                        const maskW = layer.img.width * layer.mask_size;
-                        const maskH = layer.img.height * layer.mask_size;
-                        ctx.strokeRect(-maskW / 2, -maskH / 2, maskW, maskH);
-                    }
+                ctx.globalAlpha = layer.opacity;
+                ctx.translate(canvas.width / 2 + layer.x, canvas.height / 2 + layer.y);
+                ctx.rotate((layer.rotation * Math.PI) / 180);
+                ctx.scale(layer.scale, layer.scale);
+                ctx.drawImage(layer.img, -layer.img.width / 2, -layer.img.height / 2);
+                if (layer.mask_size !== 1) {
+                    ctx.strokeStyle = "#00ff00";
+                    ctx.lineWidth = 2 / layer.scale;
+                    const maskW = layer.img.width * layer.mask_size;
+                    const maskH = layer.img.height * layer.mask_size;
+                    ctx.strokeRect(-maskW / 2, -maskH / 2, maskW, maskH);
                 }
                 ctx.restore();
             });

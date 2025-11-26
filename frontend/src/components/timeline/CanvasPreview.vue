@@ -574,7 +574,51 @@ function drawBezierPath(ctx: CanvasRenderingContext2D, path: any[]) {
     ctx.lineWidth = 2
     ctx.stroke()
   })
-  
+
+  // 在路径终点绘制方向箭头，增强方向感知
+  if (path.length >= 2) {
+    const lastIndex = path.length - 1
+    const p0 = path[lastIndex - 1]
+    const p1 = path[lastIndex]
+
+    const cp1x = p0.cp2x ?? (p0.x + (p1.x - p0.x) / 3)
+    const cp1y = p0.cp2y ?? (p0.y + (p1.y - p0.y) / 3)
+    const cp2x = p1.cp1x ?? (p0.x + (p1.x - p0.x) * 2 / 3)
+    const cp2y = p1.cp1y ?? (p0.y + (p1.y - p0.y) * 2 / 3)
+
+    // 使用 t 接近 1 的导数近似终点切线方向
+    const t = 0.99
+    const mt = 1 - t
+    const dx =
+      3 * mt * mt * (cp1x - p0.x) +
+      6 * mt * t * (cp2x - cp1x) +
+      3 * t * t * (p1.x - cp2x)
+    const dy =
+      3 * mt * mt * (cp1y - p0.y) +
+      6 * mt * t * (cp2y - cp1y) +
+      3 * t * t * (p1.y - cp2y)
+
+    const angle = Math.atan2(dy, dx)
+    const endX = centerX + p1.x
+    const endY = centerY + p1.y
+    const arrowLen = 18
+
+    ctx.beginPath()
+    ctx.moveTo(endX, endY)
+    ctx.lineTo(
+      endX - arrowLen * Math.cos(angle - Math.PI / 6),
+      endY - arrowLen * Math.sin(angle - Math.PI / 6)
+    )
+    ctx.moveTo(endX, endY)
+    ctx.lineTo(
+      endX - arrowLen * Math.cos(angle + Math.PI / 6),
+      endY - arrowLen * Math.sin(angle + Math.PI / 6)
+    )
+    ctx.strokeStyle = '#ff6b6b'
+    ctx.lineWidth = 2
+    ctx.stroke()
+  }
+
   ctx.restore()
 }
 
@@ -672,16 +716,39 @@ function drawForegroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const anchorOffsetX = (props.anchorX || 0) * w
   const anchorOffsetY = (props.anchorY || 0) * h
 
-  // 如果有自定义遮罩，应用遮罩
+  // 绘制图像（支持遮罩）
   if (layer.maskCanvas) {
-    ctx.save()
-    ctx.globalCompositeOperation = 'destination-in'
-    ctx.drawImage(layer.maskCanvas, -w / 2 - anchorOffsetX, -h / 2 - anchorOffsetY, w, h)
-    ctx.restore()
-  }
+    // 使用离屏 Canvas 先把图像与遮罩合成，避免影响其他图层
+    const offscreen = document.createElement('canvas')
+    offscreen.width = w
+    offscreen.height = h
+    const offCtx = offscreen.getContext('2d')
 
-  // 绘制图像
-  ctx.drawImage(img, -w / 2 - anchorOffsetX, -h / 2 - anchorOffsetY, w, h)
+    if (offCtx) {
+      // 先画原始图像
+      offCtx.clearRect(0, 0, w, h)
+      offCtx.drawImage(img, 0, 0, w, h)
+
+      // 再用 destination-in 应用遮罩：白色区域保留，黑色区域抠掉
+      offCtx.globalCompositeOperation = 'destination-in'
+      offCtx.drawImage(layer.maskCanvas, 0, 0, w, h)
+
+      // 将合成结果画回主画布
+      ctx.drawImage(
+        offscreen,
+        -w / 2 - anchorOffsetX,
+        -h / 2 - anchorOffsetY,
+        w,
+        h
+      )
+    } else {
+      // 回退：直接绘制原始图像
+      ctx.drawImage(img, -w / 2 - anchorOffsetX, -h / 2 - anchorOffsetY, w, h)
+    }
+  } else {
+    // 无遮罩时直接绘制
+    ctx.drawImage(img, -w / 2 - anchorOffsetX, -h / 2 - anchorOffsetY, w, h)
+  }
 
   // 绘制选中边框
   if (layer === store.currentLayer && layer.img) {
@@ -801,10 +868,35 @@ function onMouseMove(e: MouseEvent) {
     else dx = 0
   }
   
-  store.updateLayer(store.currentLayerIndex, {
-    x: dragStartLayerX + dx,
-    y: dragStartLayerY + dy
-  })
+  const newX = dragStartLayerX + dx
+  const newY = dragStartLayerY + dy
+  
+  // 更新图层属性和关键帧
+  updateLayerWithKeyframes(store.currentLayer, 'x', newX)
+  updateLayerWithKeyframes(store.currentLayer, 'y', newY)
+  
+  scheduleRender()
+}
+
+// 更新图层属性，同时更新当前时间的关键帧
+function updateLayerWithKeyframes(layer: any, prop: string, value: number) {
+  const time = store.currentTime
+  
+  // 如果有关键帧，更新或创建当前时间的关键帧
+  if (layer.keyframes && layer.keyframes[prop] && layer.keyframes[prop].length > 0) {
+    const kfIndex = layer.keyframes[prop].findIndex((k: any) => Math.abs(k.time - time) < 0.05)
+    if (kfIndex >= 0) {
+      // 更新已有关键帧
+      layer.keyframes[prop][kfIndex] = { time: layer.keyframes[prop][kfIndex].time, value }
+    } else {
+      // 当前时间没有关键帧，自动创建一个
+      layer.keyframes[prop].push({ time, value })
+      layer.keyframes[prop].sort((a: any, b: any) => a.time - b.time)
+    }
+  }
+  
+  // 更新基础值并触发响应式
+  store.updateLayer(store.currentLayerIndex, { [prop]: value })
 }
 
 // 初始化 Mask 画布
@@ -818,6 +910,7 @@ function initMaskCanvas() {
     layer.maskCanvas.height = layer.img.height
     maskCtx = layer.maskCanvas.getContext('2d')
     if (maskCtx) {
+      // 初始全白（完全显示），画黑色表示"遮罩/擦除"
       maskCtx.fillStyle = 'white'
       maskCtx.fillRect(0, 0, layer.maskCanvas.width, layer.maskCanvas.height)
     }
@@ -829,7 +922,14 @@ function initMaskCanvas() {
 // 绘制 Mask 点
 function drawMaskPoint(canvasX: number, canvasY: number) {
   const layer = store.currentLayer
-  if (!layer || !layer.img || !maskCtx || !layer.maskCanvas) return
+  if (!layer) return
+
+  // 若尚未初始化 Mask 画布，则尝试初始化（容错：即使图片还在加载）
+  if (!maskCtx || !layer.maskCanvas) {
+    initMaskCanvas()
+  }
+
+  if (!layer.img || !maskCtx || !layer.maskCanvas) return
   
   const props = getLayerProps(layer)
   const centerX = store.project.width / 2 + props.x
@@ -926,48 +1026,64 @@ function onWheel(e: WheelEvent) {
   if (!store.currentLayer) return
   
   const delta = e.deltaY > 0 ? -0.05 : 0.05
+  const layer = store.currentLayer
   
   if (e.shiftKey) {
     // Shift + 滚轮：旋转
-    const newRotation = (store.currentLayer.rotation || 0) + (delta > 0 ? 5 : -5)
-    store.updateLayer(store.currentLayerIndex, { rotation: newRotation })
+    const props = getLayerProps(layer)
+    const newRotation = props.rotation + (delta > 0 ? 5 : -5)
+    updateLayerWithKeyframes(layer, 'rotation', newRotation)
   } else if (e.altKey) {
     // Alt + 滚轮：调整透明度
-    const newOpacity = Math.max(0, Math.min(1, (store.currentLayer.opacity || 1) + delta))
-    store.updateLayer(store.currentLayerIndex, { opacity: newOpacity })
+    const props = getLayerProps(layer)
+    const newOpacity = Math.max(0, Math.min(1, props.opacity + delta))
+    updateLayerWithKeyframes(layer, 'opacity', newOpacity)
   } else {
     // 普通滚轮：缩放
-    const newScale = Math.max(0.1, Math.min(5, (store.currentLayer.scale || 1) + delta))
-    store.updateLayer(store.currentLayerIndex, { scale: newScale })
+    const props = getLayerProps(layer)
+    const newScale = Math.max(0.1, Math.min(5, props.scale + delta))
+    updateLayerWithKeyframes(layer, 'scale', newScale)
   }
+  scheduleRender()
 }
 
 function onKeyDown(e: KeyboardEvent) {
   if (!store.currentLayer) return
   
   const step = e.shiftKey ? 10 : 1
+  const layer = store.currentLayer
+  const props = getLayerProps(layer)
   
   switch (e.key) {
     case 'ArrowLeft':
-      store.updateLayer(store.currentLayerIndex, { x: store.currentLayer.x - step })
+      updateLayerWithKeyframes(layer, 'x', props.x - step)
+      scheduleRender()
       e.preventDefault()
       break
     case 'ArrowRight':
-      store.updateLayer(store.currentLayerIndex, { x: store.currentLayer.x + step })
+      updateLayerWithKeyframes(layer, 'x', props.x + step)
+      scheduleRender()
       e.preventDefault()
       break
     case 'ArrowUp':
-      store.updateLayer(store.currentLayerIndex, { y: store.currentLayer.y - step })
+      updateLayerWithKeyframes(layer, 'y', props.y - step)
+      scheduleRender()
       e.preventDefault()
       break
     case 'ArrowDown':
-      store.updateLayer(store.currentLayerIndex, { y: store.currentLayer.y + step })
+      updateLayerWithKeyframes(layer, 'y', props.y + step)
+      scheduleRender()
       e.preventDefault()
       break
     case 'r':
     case 'R':
       // 重置变换
-      store.updateLayer(store.currentLayerIndex, { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 })
+      updateLayerWithKeyframes(layer, 'x', 0)
+      updateLayerWithKeyframes(layer, 'y', 0)
+      updateLayerWithKeyframes(layer, 'scale', 1)
+      updateLayerWithKeyframes(layer, 'rotation', 0)
+      updateLayerWithKeyframes(layer, 'opacity', 1)
+      scheduleRender()
       e.preventDefault()
       break
     case 'Delete':
