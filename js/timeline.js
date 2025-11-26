@@ -394,7 +394,14 @@ class AeTimelineView {
         timeLabel.style.cssText = "margin-left:auto;color:#888;font-size:10px";
         timeLabel.textContent = "0.00s";
         const runBtn = mkBtn("⚡ Run", "#c8a33a");
-        ctrlRow.append(timeInput, goBtn, addBtn, delBtn, clrBtn, maskBtn, maskBrushLabel, maskBrushInput, maskBrushValue, maskApplyBtn, maskJitterBtn, maskJitterInput, maskJitterValue, pathBtn, pathAddBtn, pathApplyBtn, extractBtn, extractBrushLabel, extractBrushInput, extractBrushValue, extractBlurLabel, extractBlurSelect, extractApplyBtn, playBtn, stopBtn, refreshBtn, runBtn, timeLabel);
+        
+        // New Vue Preview Button
+        const vueBtn = mkBtn("🧪 Vue Preview", "#666");
+        vueBtn.title = "打开 Vue 重构版时间轴 (预览)";
+        vueBtn.style.marginLeft = "10px";
+        vueBtn.style.border = "1px solid #888";
+        
+        ctrlRow.append(timeInput, goBtn, addBtn, delBtn, clrBtn, maskBtn, maskBrushLabel, maskBrushInput, maskBrushValue, maskApplyBtn, maskJitterBtn, maskJitterInput, maskJitterValue, pathBtn, pathAddBtn, pathApplyBtn, extractBtn, extractBrushLabel, extractBrushInput, extractBrushValue, extractBlurLabel, extractBlurSelect, extractApplyBtn, playBtn, stopBtn, refreshBtn, runBtn, vueBtn, timeLabel);
         root.append(ctrlRow);
 
         const maskCanvas = document.createElement("canvas");
@@ -461,12 +468,17 @@ class AeTimelineView {
             widthInput: resWidth,
             heightInput: resHeight,
             fpsInput,
-            applyResolutionBtn: resApply
+            applyResolutionBtn: resApply,
+            vueBtn // Added Vue Preview Button
         };
     }
 
     #bindEvents() {
         const ui = this.ui;
+        
+        // Bind Vue Preview Button
+        ui.vueBtn.addEventListener("click", () => this.#openVueTimeline());
+
         ui.layerSelect.addEventListener("change", () => {
             this.state.selectedId = ui.layerSelect.value;
             this.#applyTime(this.state.currentTime);
@@ -612,6 +624,116 @@ class AeTimelineView {
             });
         });
         await Promise.all(promises);
+    }
+
+    async #openVueTimeline() {
+        try {
+            // Create dialog
+            const dialog = document.createElement("dialog");
+            dialog.className = "ae-timeline-dialog";
+            dialog.style.cssText = `
+                width: 90vw;
+                height: 90vh;
+                max-width: none;
+                max-height: none;
+                padding: 0;
+                border: 1px solid #444;
+                border-radius: 8px;
+                background: #1a1a1a;
+                z-index: 10000;
+            `;
+
+            const container = document.createElement("div");
+            container.className = "ae-vue-timeline-root";
+            container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+            dialog.appendChild(container);
+            document.body.appendChild(dialog);
+
+            // Inject critical CSS inline
+            const criticalCSS = document.createElement("style");
+            criticalCSS.textContent = `
+                .ae-vue-timeline-root { width: 100% !important; height: 100% !important; }
+                .ae-vue-timeline-root .root { display: grid !important; grid-template-columns: 50px 1fr 220px !important; grid-template-rows: 44px 1fr 180px !important; grid-template-areas: "header header header" "left center right" "footer footer footer" !important; width: 100% !important; height: 100% !important; background: #1a1a1a; color: #ddd; font-family: -apple-system, sans-serif; font-size: 12px; box-sizing: border-box; }
+                .ae-vue-timeline-root .header { grid-area: header !important; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: #252525; border-bottom: 1px solid #333; }
+                .ae-vue-timeline-root .header-left, .ae-vue-timeline-root .header-center, .ae-vue-timeline-root .header-right { display: flex; align-items: center; gap: 8px; }
+                .ae-vue-timeline-root .left { grid-area: left !important; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: #222; border-right: 1px solid #333; }
+                .ae-vue-timeline-root .center { grid-area: center !important; display: flex; align-items: center; justify-content: center; background: #111; overflow: hidden; }
+                .ae-vue-timeline-root .right { grid-area: right !important; padding: 12px; background: #222; border-left: 1px solid #333; overflow-y: auto; }
+                .ae-vue-timeline-root .footer { grid-area: footer !important; display: flex; background: #1e1e1e; border-top: 1px solid #333; }
+                .ae-vue-timeline-root .layers { width: 160px; border-right: 1px solid #333; display: flex; flex-direction: column; }
+                .ae-vue-timeline-root .tracks { flex: 1; position: relative; display: flex; flex-direction: column; }
+                .ae-vue-timeline-root .ruler { height: 28px; background: #252525; border-bottom: 1px solid #333; position: relative; }
+                .ae-vue-timeline-root .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid #444; padding-left: 4px; font-size: 10px; color: #666; display: flex; align-items: center; }
+                .ae-vue-timeline-root .canvas-preview { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+                .ae-vue-timeline-root .time-indicator { position: absolute; top: 2px; left: 50%; transform: translateX(-50%); background: #e74c3c; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 3px; pointer-events: none; z-index: 11; }
+                .ae-vue-timeline-root .kf:hover { transform: translate(-50%, -50%) rotate(45deg) scale(1.3); background: #5dade2; }
+                .ae-vue-timeline-root .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e74c3c; z-index: 10; pointer-events: none; }
+                .ae-vue-timeline-root .prop-group { margin-bottom: 12px; }
+                .ae-vue-timeline-root .prop-label { color: #888; font-size: 10px; text-transform: uppercase; margin-bottom: 6px; }
+                .ae-vue-timeline-root .prop-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+                .ae-vue-timeline-root .prop-row label { width: 50px; color: #888; font-size: 11px; flex-shrink: 0; }
+                .ae-vue-timeline-root .prop-row input[type="range"] { flex: 1; height: 4px; background: #333; border-radius: 2px; cursor: pointer; }
+                .ae-vue-timeline-root .prop-row input[type="number"] { width: 60px; padding: 3px 5px; background: #1a1a1a; border: 1px solid #444; border-radius: 3px; color: #fff; font-size: 11px; }
+                .ae-vue-timeline-root .prop-row input[type="number"].small { width: 45px; }
+                .ae-vue-timeline-root .help-text { margin-top: 16px; padding-top: 12px; border-top: 1px solid #333; color: #555; font-size: 10px; line-height: 1.6; }
+            `;
+            document.head.appendChild(criticalCSS);
+
+            // Load Vue app if not already loaded
+            if (!window.createTimelineApp) {
+                const link = document.createElement("link");
+                link.rel = "stylesheet";
+                link.href = "/extensions/ComfyUI-AE-Animation/vue-dist/assets/timeline.css";
+                document.head.appendChild(link);
+
+                const maskLink = document.createElement("link");
+                maskLink.rel = "stylesheet";
+                maskLink.href = "/extensions/ComfyUI-AE-Animation/vue-dist/assets/mask-editor.css";
+                document.head.appendChild(maskLink);
+
+                const script = document.createElement("script");
+                script.type = "module";
+                script.src = "/extensions/ComfyUI-AE-Animation/vue-dist/timeline.js";
+                
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+
+                // Wait for module initialization
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            // Mount Vue App
+            if (window.createTimelineApp) {
+                const app = window.createTimelineApp(container, {
+                    node: this.node
+                });
+
+                dialog.addEventListener("close", () => {
+                    app.unmount();
+                    dialog.remove();
+                    // Reload state from widget in case Vue app changed it
+                    this.#loadFromWidget();
+                });
+
+                // Close on Esc
+                dialog.addEventListener("keydown", (e) => {
+                    if (e.key === "Escape") {
+                        dialog.close();
+                    }
+                });
+            } else {
+                container.innerHTML = `<div style="padding:20px;color:#f44">Failed to load Vue Timeline App. Please check console.</div>`;
+            }
+
+            dialog.showModal();
+
+        } catch (error) {
+            console.error("[AE] Failed to open Vue timeline:", error);
+            alert("Failed to open Vue preview: " + error.message);
+        }
     }
 
     #currentLayer() {

@@ -1,0 +1,261 @@
+/* Timeline App Global Styles */
+.ae-vue-timeline-root {
+  width: 100%;
+  height: 100%;
+}
+
+.ae-vue-timeline-root .root {
+  display: grid;
+  grid-template-columns: 50px 1fr 200px;
+  grid-template-rows: 44px 1fr 180px;
+  grid-template-areas:
+    "header header header"
+    "left center right"
+    "footer footer footer";
+  width: 100%;
+  height: 100%;
+  background: #1a1a1a;
+  color: #ddd;
+  font-family: -apple-system, sans-serif;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.ae-vue-timeline-root .header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+}
+
+.ae-vue-timeline-root .header-left,
+.ae-vue-timeline-root .header-center,
+.ae-vue-timeline-root .header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ae-vue-timeline-root .title { font-weight: 600; color: #fff; }
+.ae-vue-timeline-root .meta { color: #888; font-size: 11px; }
+.ae-vue-timeline-root .time { font-family: monospace; color: #3a7bc8; min-width: 70px; }
+
+.ae-vue-timeline-root .btn {
+  padding: 5px 10px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 11px;
+}
+.ae-vue-timeline-root .btn:hover { background: #444; }
+.ae-vue-timeline-root .btn.active { background: #3a7bc8; color: #fff; }
+.ae-vue-timeline-root .btn.green { background: #2d5a3d; }
+.ae-vue-timeline-root .btn.blue { background: #3a7bc8; color: #fff; }
+.ae-vue-timeline-root .btn.red { background: #c83a3a; color: #fff; }
+
+.ae-vue-timeline-root .left {
+  grid-area: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: #222;
+  border-right: 1px solid #333;
+}
+
+.ae-vue-timeline-root .tool {
+  width: 34px;
+  height: 34px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ae-vue-timeline-root .tool:hover { background: #444; }
+.ae-vue-timeline-root .tool:disabled { opacity: 0.5; }
+.ae-vue-timeline-root .tool-sep { height: 1px; background: #444; margin: 4px 0; }
+
+.ae-vue-timeline-root .center {
+  grid-area: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  overflow: hidden;
+}
+
+.ae-vue-timeline-root .right {
+  grid-area: right;
+  padding: 12px;
+  background: #222;
+  border-left: 1px solid #333;
+  overflow-y: auto;
+}
+
+.ae-vue-timeline-root .panel-title {
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #444;
+}
+
+.ae-vue-timeline-root .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ae-vue-timeline-root .row label { color: #888; font-size: 11px; }
+.ae-vue-timeline-root .row input,
+.ae-vue-timeline-root .row select {
+  width: 80px;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 11px;
+}
+
+.ae-vue-timeline-root .no-selection { color: #666; font-size: 11px; text-align: center; padding: 20px 0; }
+
+.ae-vue-timeline-root .footer {
+  grid-area: footer;
+  display: flex;
+  background: #1e1e1e;
+  border-top: 1px solid #333;
+}
+
+.ae-vue-timeline-root .layers {
+  width: 160px;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+}
+
+.ae-vue-timeline-root .layers-head {
+  height: 28px;
+  padding: 0 8px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  color: #888;
+  font-size: 11px;
+}
+
+.ae-vue-timeline-root .layers-body { flex: 1; overflow-y: auto; }
+
+.ae-vue-timeline-root .layer {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid #2a2a2a;
+  cursor: pointer;
+  gap: 6px;
+}
+.ae-vue-timeline-root .layer:hover { background: #2a2a2a; }
+.ae-vue-timeline-root .layer.active { background: #3a5070; }
+
+.ae-vue-timeline-root .layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ae-vue-timeline-root .layer-del {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+}
+.ae-vue-timeline-root .layer:hover .layer-del { opacity: 1; }
+.ae-vue-timeline-root .layer-del:hover { color: #f44; }
+
+.ae-vue-timeline-root .tracks {
+  flex: 1;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.ae-vue-timeline-root .ruler {
+  height: 28px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+  position: relative;
+}
+
+.ae-vue-timeline-root .tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 1px solid #444;
+  padding-left: 4px;
+  font-size: 10px;
+  color: #666;
+  display: flex;
+  align-items: center;
+}
+
+.ae-vue-timeline-root .tracks-body {
+  flex: 1;
+  position: relative;
+  overflow-y: auto;
+}
+
+.ae-vue-timeline-root .track {
+  height: 32px;
+  border-bottom: 1px solid #2a2a2a;
+  position: relative;
+}
+.ae-vue-timeline-root .track.active { background: #2a3545; }
+
+.ae-vue-timeline-root .kf {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #3498db;
+  border: 1px solid #5dade2;
+}
+
+.ae-vue-timeline-root .playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e74c3c;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Canvas Preview */
+.ae-vue-timeline-root .canvas-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ae-vue-timeline-root .canvas-preview canvas {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  cursor: move;
+  max-width: 100%;
+  max-height: 100%;
+}
