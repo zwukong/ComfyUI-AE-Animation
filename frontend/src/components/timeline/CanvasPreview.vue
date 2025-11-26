@@ -245,6 +245,11 @@ watch(() => [store.layers, store.currentLayer, store.currentTime], () => {
   scheduleRender()
 }, { deep: true })
 
+watch(() => store.extractMode.enabled, () => {
+  isExtractDrawing = false
+  scheduleRender()
+})
+
 // GPU 渲染 - 同步方式
 function renderGPU() {
   if (!gpuDevice || !gpuContext || !gpuPipeline || !gpuSampler || !gpuUniformBuffer || !gpuBindGroupLayout) {
@@ -528,6 +533,11 @@ function renderCanvas2D() {
   if (store.pathMode.enabled && store.currentLayer?.bezierPath) {
     drawBezierPath(ctx, store.currentLayer.bezierPath)
   }
+
+  // 绘制背景提取选区叠加层
+  if (store.extractMode.enabled) {
+    drawExtractOverlay(ctx)
+  }
 }
 
 // 绘制贝塞尔路径
@@ -624,7 +634,7 @@ function drawBezierPath(ctx: CanvasRenderingContext2D, path: any[]) {
 
 function drawBackgroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const img = getCachedImage(layer)
-  if (!img) return
+  if (!img || img.width === 0 || img.height === 0) return
 
   // 获取插值后的属性
   const props = getLayerProps(layer)
@@ -639,15 +649,19 @@ function drawBackgroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const imgH = img.height
 
   let baseScale = 1
-  let drawX = 0, drawY = 0
-
-  if (mode === 'fit') {
-    baseScale = Math.min(canvasW / imgW, canvasH / imgH)
-  } else if (mode === 'fill') {
-    baseScale = Math.max(canvasW / imgW, canvasH / imgH)
-  } else if (mode === 'stretch') {
-    baseScale = Math.min(canvasW / imgW, canvasH / imgH)
+  
+  if (imgW > 0 && imgH > 0) {
+    if (mode === 'fit') {
+      baseScale = Math.min(canvasW / imgW, canvasH / imgH)
+    } else if (mode === 'fill') {
+      baseScale = Math.max(canvasW / imgW, canvasH / imgH)
+    } else if (mode === 'stretch') {
+      baseScale = Math.min(canvasW / imgW, canvasH / imgH)
+    }
   }
+
+  // 防止 scale 为无效值
+  if (!Number.isFinite(baseScale) || baseScale <= 0) baseScale = 1
 
   // 应用变换
   ctx.translate(canvasW / 2 + props.x, canvasH / 2 + props.y)
@@ -656,6 +670,7 @@ function drawBackgroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
 
   // 绘制图像居中
   ctx.drawImage(img, -imgW / 2, -imgH / 2, imgW, imgH)
+
 
   // 选中时显示边框
   if (layer === store.currentLayer) {
@@ -669,7 +684,7 @@ function drawBackgroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
 
 function drawForegroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const img = getCachedImage(layer)
-  if (!img) return
+  if (!img || img.width === 0 || img.height === 0) return
 
   // 获取插值后的属性（支持动画）
   const props = getLayerProps(layer)
@@ -805,6 +820,12 @@ function getCanvasCoords(e: MouseEvent) {
 let isMaskDrawing = false
 let maskCtx: CanvasRenderingContext2D | null = null
 
+// Extract 模式状态
+let extractMaskCanvas: HTMLCanvasElement | null = null
+let extractMaskCtx: CanvasRenderingContext2D | null = null
+let isExtractDrawing = false
+let extractSourceLayerId: string | null = null
+
 // 路径编辑状态
 let isPathEditing = false
 let selectedPathPoint = -1
@@ -817,6 +838,18 @@ function onMouseDown(e: MouseEvent) {
   if (!store.currentLayer) return
   
   const coords = getCanvasCoords(e)
+
+  // Extract 模式
+  if (store.extractMode.enabled) {
+    const resources = ensureExtractResources()
+    if (!resources) {
+      console.warn('[Timeline] Extract mode requires a background layer with image data')
+      return
+    }
+    isExtractDrawing = true
+    drawExtractPoint(coords.x, coords.y, e.button === 2 || e.altKey)
+    return
+  }
   
   // Mask 绘制模式
   if (store.maskMode.enabled) {
@@ -844,6 +877,11 @@ function onMouseDown(e: MouseEvent) {
 
 function onMouseMove(e: MouseEvent) {
   const coords = getCanvasCoords(e)
+
+  if (store.extractMode.enabled && isExtractDrawing) {
+    drawExtractPoint(coords.x, coords.y, (e.buttons & 2) === 2 || e.altKey)
+    return
+  }
   
   // Mask 绘制
   if (isMaskDrawing && store.maskMode.enabled) {
@@ -909,10 +947,22 @@ function initMaskCanvas() {
     layer.maskCanvas.width = layer.img.width
     layer.maskCanvas.height = layer.img.height
     maskCtx = layer.maskCanvas.getContext('2d')
+    
     if (maskCtx) {
-      // 初始全白（完全显示），画黑色表示"遮罩/擦除"
-      maskCtx.fillStyle = 'white'
-      maskCtx.fillRect(0, 0, layer.maskCanvas.width, layer.maskCanvas.height)
+      if (layer.customMask) {
+        // 从保存的数据恢复 Mask
+        const img = new Image()
+        img.onload = () => {
+          maskCtx?.drawImage(img, 0, 0)
+          scheduleRender()
+        }
+        img.src = layer.customMask
+      } else {
+        // 初始全白（Alpha=1，完全显示）
+        maskCtx.globalCompositeOperation = 'source-over'
+        maskCtx.fillStyle = 'white'
+        maskCtx.fillRect(0, 0, layer.maskCanvas.width, layer.maskCanvas.height)
+      }
     }
   } else {
     maskCtx = layer.maskCanvas.getContext('2d')
@@ -924,7 +974,7 @@ function drawMaskPoint(canvasX: number, canvasY: number) {
   const layer = store.currentLayer
   if (!layer) return
 
-  // 若尚未初始化 Mask 画布，则尝试初始化（容错：即使图片还在加载）
+  // 若尚未初始化 Mask 画布，则尝试初始化
   if (!maskCtx || !layer.maskCanvas) {
     initMaskCanvas()
   }
@@ -941,12 +991,233 @@ function drawMaskPoint(canvasX: number, canvasY: number) {
   
   const brush = store.maskMode.brush || 20
   
+  maskCtx.save()
   maskCtx.beginPath()
   maskCtx.arc(localX, localY, brush, 0, Math.PI * 2)
-  maskCtx.fillStyle = store.maskMode.erase ? 'black' : 'white'
+  
+  if (!store.maskMode.erase) {
+    // 画笔模式：挖空图像 -> 使遮罩变透明
+    maskCtx.globalCompositeOperation = 'destination-out'
+    maskCtx.fillStyle = 'black' // 颜色不重要，关键是 Alpha 操作
+  } else {
+    // 橡皮/还原模式：显示图像 -> 使遮罩变不透明
+    maskCtx.globalCompositeOperation = 'source-over'
+    maskCtx.fillStyle = 'white'
+  }
+  
   maskCtx.fill()
+  maskCtx.restore()
   
   scheduleRender()
+}
+
+function ensureExtractResources() {
+  const bgLayer = store.layers.find(l => l.type === 'background')
+  if (!bgLayer) return null
+  const img = getCachedImage(bgLayer)
+  if (!img) return null
+
+  if (
+    !extractMaskCanvas ||
+    !extractMaskCtx ||
+    extractMaskCanvas.width !== img.width ||
+    extractMaskCanvas.height !== img.height ||
+    extractSourceLayerId !== bgLayer.id
+  ) {
+    extractMaskCanvas = document.createElement('canvas')
+    extractMaskCanvas.width = img.width
+    extractMaskCanvas.height = img.height
+    extractMaskCtx = extractMaskCanvas.getContext('2d')
+    if (extractMaskCtx) {
+      // 初始全透明（Alpha=0，全不选）
+      extractMaskCtx.clearRect(0, 0, img.width, img.height)
+    }
+    extractSourceLayerId = bgLayer.id || null
+  }
+
+  return {
+    layer: bgLayer,
+    img,
+    ctx: extractMaskCtx!
+  }
+}
+
+function drawExtractPoint(canvasX: number, canvasY: number, erase = false) {
+  const resources = ensureExtractResources()
+  if (!resources) return
+
+  const { layer, img, ctx } = resources
+  const props = getLayerProps(layer)
+  const centerX = store.project.width / 2 + (props.x ?? 0)
+  const centerY = store.project.height / 2 + (props.y ?? 0)
+  const scale = props.scale ?? 1
+
+  const localX = (canvasX - centerX) / scale + img.width / 2
+  const localY = (canvasY - centerY) / scale + img.height / 2
+
+  const brush = Math.max(1, store.extractMode.brush || 30)
+
+  ctx.beginPath()
+  ctx.arc(localX, localY, brush, 0, Math.PI * 2)
+  ctx.fillStyle = erase ? 'black' : 'white'
+  ctx.fill()
+
+  scheduleRender()
+}
+
+function drawExtractOverlay(ctx: CanvasRenderingContext2D) {
+  if (!store.extractMode.enabled || !extractMaskCanvas || !extractSourceLayerId) return
+  const bgLayer = store.layers.find(l => l.id === extractSourceLayerId)
+  if (!bgLayer) return
+  const img = getCachedImage(bgLayer)
+  if (!img) return
+
+  const props = getLayerProps(bgLayer)
+  ctx.save()
+  ctx.translate(store.project.width / 2 + (props.x ?? 0), store.project.height / 2 + (props.y ?? 0))
+  ctx.rotate((props.rotation ?? 0) * Math.PI / 180)
+  ctx.scale(props.scale ?? 1, props.scale ?? 1)
+  
+  // 1. 先把图片和蒙版位置对齐
+  const dx = -img.width / 2
+  const dy = -img.height / 2
+  
+  // 2. 绘制全屏半透明黑层 (表示"未选中/背景")
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)'
+  ctx.fillRect(dx, dy, img.width, img.height)
+
+  // 3. 使用 destination-out 擦除黑层 (露出下方高亮原图，表示"选中")
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.drawImage(extractMaskCanvas, dx, dy, img.width, img.height)
+  
+  // 4. 可选：给边缘加个红色描边增强可见性 (source-over)
+  // ctx.globalCompositeOperation = 'source-over'
+  // ... (如果性能允许可以做边缘检测)
+
+  ctx.restore()
+}
+
+function clearExtractSelection() {
+  if (extractMaskCtx && extractMaskCanvas) {
+    extractMaskCtx.clearRect(0, 0, extractMaskCanvas.width, extractMaskCanvas.height)
+    scheduleRender()
+  }
+}
+
+function hasExtractSelection() {
+  if (!extractMaskCtx || !extractMaskCanvas) return false
+  const data = extractMaskCtx.getImageData(0, 0, extractMaskCanvas.width, extractMaskCanvas.height).data
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] > 10) return true
+  }
+  return false
+}
+
+// 简单的图像修复/填充算法 (Content-Aware Fill 近似)
+function inpaintSimple(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  // 1. 获取原始图像 (已有透明洞)
+  const original = ctx.canvas
+  
+  // 2. 创建处理画布
+  const tempC = document.createElement('canvas')
+  tempC.width = width
+  tempC.height = height
+  const tCtx = tempC.getContext('2d')
+  if (!tCtx) return null
+
+  // 3. 绘制原始图像
+  tCtx.drawImage(original, 0, 0)
+  
+  // 4. 边缘扩散 (简单的膨胀算法)
+  // 通过多次绘制并微小偏移，将边缘像素"推"进透明区域
+  const steps = 8 // 扩散次数
+  tCtx.globalCompositeOperation = 'destination-over' // 在下方绘制，避免覆盖已有像素
+  
+  for (let i = 0; i < steps; i++) {
+    // 上下左右偏移绘制
+    tCtx.drawImage(tempC, 1, 0)
+    tCtx.drawImage(tempC, -1, 0)
+    tCtx.drawImage(tempC, 0, 1)
+    tCtx.drawImage(tempC, 0, -1)
+    
+    // 对角线偏移 (增强填充速度)
+    if (i % 2 === 0) {
+        tCtx.drawImage(tempC, 1, 1)
+        tCtx.drawImage(tempC, -1, -1)
+        tCtx.drawImage(tempC, 1, -1)
+        tCtx.drawImage(tempC, -1, 1)
+    }
+  }
+  
+  // 5. 强力模糊填充 (填补剩余大洞)
+  const blurC = document.createElement('canvas')
+  blurC.width = width / 8 // 降采样
+  blurC.height = height / 8
+  const bCtx = blurC.getContext('2d')
+  if (bCtx) {
+      bCtx.drawImage(tempC, 0, 0, blurC.width, blurC.height)
+      bCtx.filter = 'blur(4px)' // 在小图上模糊相当于大图的大模糊
+      bCtx.drawImage(blurC, 0, 0)
+      bCtx.drawImage(blurC, 0, 0) // 加强颜色
+      
+      // 将模糊底图画在最下面
+      tCtx.save()
+      tCtx.globalCompositeOperation = 'destination-over'
+      tCtx.filter = 'blur(8px)' // 再次模糊以柔和边缘
+      tCtx.drawImage(blurC, 0, 0, width, height)
+      tCtx.restore()
+  }
+
+  return tempC.toDataURL('image/png')
+}
+
+function applyExtractSelection() {
+  const resources = ensureExtractResources()
+  if (!resources || !extractMaskCanvas || !extractMaskCtx) {
+    return { error: '背景图层尚未准备好' }
+  }
+
+  if (!hasExtractSelection()) {
+    return null
+  }
+
+  const { img } = resources
+  
+  // 1. 生成前景图 (Extract)
+  const fgCanvas = document.createElement('canvas')
+  fgCanvas.width = img.width
+  fgCanvas.height = img.height
+  const fgCtx = fgCanvas.getContext('2d')
+  if (!fgCtx) return { error: '无法创建临时画布' }
+
+  fgCtx.drawImage(img, 0, 0)
+  fgCtx.globalCompositeOperation = 'destination-in'
+  fgCtx.drawImage(extractMaskCanvas, 0, 0)
+  
+  const foregroundDataUrl = fgCanvas.toDataURL('image/png')
+
+  // 2. 生成背景图 (Inpaint)
+  const bgCanvas = document.createElement('canvas')
+  bgCanvas.width = img.width
+  bgCanvas.height = img.height
+  const bgCtx = bgCanvas.getContext('2d')
+  if (!bgCtx) return { error: '无法创建背景画布' }
+  
+  // A. 绘制原背景
+  bgCtx.drawImage(img, 0, 0)
+  
+  // B. 挖空 (Destination-Out)
+  bgCtx.globalCompositeOperation = 'destination-out'
+  bgCtx.drawImage(extractMaskCanvas, 0, 0)
+  
+  // C. 像素填充 (Inpaint)
+  bgCtx.globalCompositeOperation = 'source-over' // 恢复
+  const backgroundDataUrl = inpaintSimple(bgCtx, img.width, img.height) || img.src // 失败则回退
+
+  return { 
+      foregroundDataUrl,
+      backgroundDataUrl 
+  }
 }
 
 // 路径点击处理
@@ -1018,6 +1289,7 @@ function updatePathPoint(coords: { x: number, y: number }) {
 function onMouseUp() {
   isDragging = false
   isMaskDrawing = false
+  isExtractDrawing = false
   isPathEditing = false
   selectedPathPoint = -1
 }
@@ -1095,6 +1367,11 @@ function onKeyDown(e: KeyboardEvent) {
       break
   }
 }
+
+defineExpose({
+  clearExtractSelection,
+  applyExtractSelection
+})
 </script>
 
 <style scoped>

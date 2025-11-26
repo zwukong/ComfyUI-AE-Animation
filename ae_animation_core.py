@@ -334,6 +334,47 @@ class AERender(io.ComfyNode):
         return default
 
     @classmethod
+    def _calculate_bezier_pos(cls, path_points: List[Dict[str, float]], time: float, duration: float) -> Optional[tuple[float, float]]:
+        if not path_points or len(path_points) < 2:
+            return None
+        
+        # Normalize time to 0-1
+        t = max(0.0, min(1.0, time / duration)) if duration > 0 else 0
+        
+        total_segments = len(path_points) - 1
+        current_segment = min(int(t * total_segments), total_segments - 1)
+        segment_t = (t * total_segments) - current_segment
+        
+        p0 = path_points[current_segment]
+        p1 = path_points[current_segment + 1]
+        
+        # Calculate control points (default to 1/3 and 2/3 if not present)
+        # Note: frontend stores cp relative to p0/p1? No, absolute coords usually?
+        # Frontend CanvasPreview.vue:
+        # const cp1x = p0.cp2x ?? (p0.x + (p1.x - p0.x) / 3)
+        # It seems frontend stores them as absolute coords relative to center
+        
+        p0_x, p0_y = p0.get("x", 0), p0.get("y", 0)
+        p1_x, p1_y = p1.get("x", 0), p1.get("y", 0)
+        
+        cp1_x = p0.get("cp2x", p0_x + (p1_x - p0_x) / 3.0)
+        cp1_y = p0.get("cp2y", p0_y + (p1_y - p0_y) / 3.0)
+        cp2_x = p1.get("cp1x", p0_x + (p1_x - p0_x) * 2.0 / 3.0)
+        cp2_y = p1.get("cp1y", p0_y + (p1_y - p0_y) * 2.0 / 3.0)
+        
+        # Cubic Bezier interpolation
+        mt = 1 - segment_t
+        mt2 = mt * mt
+        mt3 = mt2 * mt
+        t2 = segment_t * segment_t
+        t3 = t2 * segment_t
+        
+        x = mt3 * p0_x + 3 * mt2 * segment_t * cp1_x + 3 * mt * t2 * cp2_x + t3 * p1_x
+        y = mt3 * p0_y + 3 * mt2 * segment_t * cp1_y + 3 * mt * t2 * cp2_y + t3 * p1_y
+        
+        return x, y
+
+    @classmethod
     def _decode_layers(cls, layers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         decoded = []
         for layer in layers:
@@ -396,6 +437,14 @@ class AERender(io.ComfyNode):
                 layer_type = "background" if layer.get("type") == "background" else "foreground"
                 bg_mode = layer.get("bg_mode", "fit")
                 custom_mask = layer.get("customMask")
+                bezier_path = layer.get("bezierPath")
+                
+                # Debug info
+                print(f"[AE] Decoding layer: {layer.get('id')}, Type: {layer_type}")
+                if custom_mask:
+                    print(f"[AE]   - Has Custom Mask (len={len(custom_mask)})")
+                if bezier_path:
+                    print(f"[AE]   - Has Bezier Path (points={len(bezier_path)})")
                 
                 layers.append({
                     "data": np.array(img),
@@ -405,6 +454,7 @@ class AERender(io.ComfyNode):
                     "orig_h": img.height,
                     "bg_mode": bg_mode,
                     "customMask": custom_mask,
+                    "bezierPath": bezier_path,
                     "x": layer.get("x", 0),
                     "y": layer.get("y", 0),
                     "scale": layer.get("scale", 1.0),
@@ -434,6 +484,14 @@ class AERender(io.ComfyNode):
                 # Use layer's static values as defaults, then override with keyframes
                 x = cls._get_value(kf, "x", time, layer.get("x", 0))
                 y = cls._get_value(kf, "y", time, layer.get("y", 0))
+                
+                # Apply Bezier Path animation if available (overrides x/y)
+                bezier_path = layer.get("bezierPath")
+                if bezier_path and len(bezier_path) >= 2:
+                    path_pos = cls._calculate_bezier_pos(bezier_path, time, duration)
+                    if path_pos:
+                        x, y = path_pos
+
                 scale = cls._get_value(kf, "scale", time, layer.get("scale", 1.0))
                 rotation = cls._get_value(kf, "rotation", time, layer.get("rotation", 0))
                 opacity = cls._get_value(kf, "opacity", time, layer.get("opacity", 1.0))
@@ -442,31 +500,36 @@ class AERender(io.ComfyNode):
                 # Apply custom mask to foreground alpha FIRST (in original image coordinates)
                 if is_foreground and layer.get("customMask"):
                     try:
-                        pass  # Applying custom mask
                         custom_mask_b64 = layer["customMask"].split(',')[1]
                         custom_mask_data = base64.b64decode(custom_mask_b64)
-                        custom_mask_img = Image.open(python_io.BytesIO(custom_mask_data)).convert("L")
+                        # FIX: Use RGBA and extract Alpha channel, because frontend mask uses Alpha for transparency
+                        custom_mask_img = Image.open(python_io.BytesIO(custom_mask_data)).convert("RGBA")
                         custom_mask_np = np.array(custom_mask_img)
-                        orig_mask_shape = custom_mask_np.shape
-                        pass  # Mask decoded
                         
                         # Resize mask to original image size
                         orig_h, orig_w = img_np.shape[:2]
-                        if custom_mask_np.shape != (orig_h, orig_w):
+                        target_h, target_w = custom_mask_np.shape[:2]
+                        
+                        if (target_h, target_w) != (orig_h, orig_w):
                             custom_mask_np = cv2.resize(custom_mask_np, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-                            pass  # Mask resized
+                        
+                        # Extract Alpha channel (3) as the mask
+                        # 255 = visible, 0 = hidden
+                        mask_alpha = custom_mask_np[:, :, 3].astype(np.float32) / 255.0
                         
                         # Apply mask directly to alpha channel (multiply)
                         if img_np.shape[2] == 4:
-                            img_np[:, :, 3] = (
-                                img_np[:, :, 3].astype(np.float32) * 
-                                (custom_mask_np.astype(np.float32) / 255.0)
-                            ).astype(np.uint8)
-                            pass  # Mask applied
+                            img_np[:, :, 3] = (img_np[:, :, 3].astype(np.float32) * mask_alpha).astype(np.uint8)
+                        else:
+                            # If RGB, add Alpha channel
+                            h, w = img_np.shape[:2]
+                            alpha_channel = (mask_alpha * 255).astype(np.uint8)
+                            img_np = np.dstack((img_np, alpha_channel))
+
                     except Exception as e:
                         print(f"[AERender] Custom mask error: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        # import traceback
+                        # traceback.print_exc()
 
                 # Background scaling logic
                 new_w, new_h = img_np.shape[1], img_np.shape[0]
