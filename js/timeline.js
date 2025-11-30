@@ -632,29 +632,35 @@ class AeTimelineView {
             const dialog = document.createElement("dialog");
             dialog.className = "ae-timeline-dialog";
             dialog.style.cssText = `
-                width: 90vw;
-                height: 90vh;
-                max-width: none;
-                max-height: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: min(98vw, 2400px);
+                height: min(96vh, 1400px);
+                max-width: 98vw;
+                max-height: 96vh;
                 padding: 0;
+                margin: 0;
                 border: 1px solid #444;
                 border-radius: 8px;
                 background: #1a1a1a;
                 z-index: 10000;
+                box-sizing: border-box;
             `;
 
             const container = document.createElement("div");
             container.className = "ae-vue-timeline-root";
-            container.style.cssText = "width: 100%; height: 100%; overflow: hidden;";
+            container.style.cssText = "width: 100%; height: 100%; overflow: hidden; position: relative; box-sizing: border-box;";
             dialog.appendChild(container);
             document.body.appendChild(dialog);
 
             // Inject critical CSS inline - NEW LAYOUT: canvas -> toolbar -> params -> layers+timeline
             const criticalCSS = document.createElement("style");
             criticalCSS.textContent = `
-                .ae-vue-timeline-root { width: 100% !important; height: 100% !important; }
-                .ae-vue-timeline-root .root { display: grid !important; grid-template-rows: 1fr 44px 36px 180px !important; grid-template-columns: 1fr !important; width: 100% !important; height: 100% !important; background: #1a1a1a; color: #ddd; font-family: -apple-system, sans-serif; font-size: 12px; box-sizing: border-box; }
-                .ae-vue-timeline-root .canvas-area { display: flex !important; align-items: center; justify-content: center; background: #111; overflow: hidden; }
+                .ae-vue-timeline-root { width: 100% !important; height: 100% !important; position: relative; box-sizing: border-box; }
+                .ae-vue-timeline-root .root { display: flex !important; flex-direction: column !important; width: 100% !important; height: 100% !important; background: #1a1a1a; color: #ddd; font-family: -apple-system, sans-serif; font-size: 12px; box-sizing: border-box; overflow: hidden; }
+                .ae-vue-timeline-root .canvas-area { display: flex !important; align-items: center; justify-content: center; background: #111; overflow: hidden; flex: 3 1 0 !important; min-height: 0 !important; }
                 .ae-vue-timeline-root .toolbar-area { display: flex !important; align-items: center; justify-content: center; padding: 0 12px; background: #2a2a2a; border-top: 1px solid #444; border-bottom: 1px solid #444; }
                 .ae-vue-timeline-root .toolbar-center { display: flex; align-items: center; gap: 8px; }
                 .ae-vue-timeline-root .params-area { display: flex !important; align-items: center; justify-content: center; gap: 16px; padding: 0 12px; background: #252525; border-bottom: 1px solid #333; }

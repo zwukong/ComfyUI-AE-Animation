@@ -58,6 +58,11 @@ export interface Project {
   mask_feather: number
 }
 
+function getSafeDuration(p: Project) {
+  const fps = Math.max(1, p.fps || 1)
+  return p.duration || (p.total_frames / fps)
+}
+
 export const useTimelineStore = defineStore('timeline', () => {
   // Project settings
   const project = ref<Project>({
@@ -117,10 +122,27 @@ export const useTimelineStore = defineStore('timeline', () => {
 
   // Actions
   function setProject(data: Partial<Project>) {
-    Object.assign(project.value, data)
-    if (data.fps && data.duration) {
-      project.value.total_frames = Math.floor(data.fps * data.duration)
+    const fps = Math.max(1, data.fps ?? project.value.fps)
+    const hasDuration = typeof data.duration === 'number'
+    const hasTotalFrames = typeof data.total_frames === 'number'
+
+    const next: Project = {
+      ...project.value,
+      ...data,
+      fps
     }
+
+    if (hasDuration && !hasTotalFrames) {
+      next.total_frames = Math.max(1, Math.round((next.duration || 0) * fps))
+    } else if (hasTotalFrames && !hasDuration) {
+      next.total_frames = Math.max(1, Math.round(next.total_frames))
+      next.duration = next.total_frames / fps
+    } else {
+      next.total_frames = Math.max(1, Math.round(next.total_frames || (next.duration * fps)))
+      next.duration = next.duration || (next.total_frames / fps)
+    }
+
+    Object.assign(project.value, next)
   }
 
   function addLayer(layer: Layer) {
@@ -156,12 +178,17 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function setCurrentTime(time: number) {
-    currentTime.value = Math.max(0, Math.min(time, project.value.duration))
+    const duration = getSafeDuration(project.value)
+    currentTime.value = Math.max(0, Math.min(time, duration))
     currentFrame.value = Math.floor(currentTime.value * project.value.fps)
   }
 
   function setCurrentFrame(frame: number) {
-    currentFrame.value = Math.max(0, Math.min(frame, project.value.total_frames - 1))
+    const totalFrames = Math.max(
+      1,
+      Math.round(project.value.total_frames || getSafeDuration(project.value) * project.value.fps)
+    )
+    currentFrame.value = Math.max(0, Math.min(frame, totalFrames - 1))
     currentTime.value = currentFrame.value / project.value.fps
   }
 
@@ -178,6 +205,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function startPlayback() {
+    if (playbackId !== null) return
     lastPlayTime = performance.now()
     playbackLoop()
   }
@@ -190,9 +218,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     lastPlayTime = now
     
     let newTime = currentTime.value + deltaTime
+    const duration = getSafeDuration(project.value)
     
     // 循环播放
-    if (newTime >= project.value.duration) {
+    if (newTime >= duration) {
       newTime = 0
     }
     
@@ -217,12 +246,15 @@ export const useTimelineStore = defineStore('timeline', () => {
     if (!animation) return
     
     const proj = animation.project || {}
+    const fps = proj.fps || project.value.fps || 30
+    const duration = proj.duration ?? (proj.total_frames ? proj.total_frames / Math.max(1, fps) : project.value.duration)
+    const totalFrames = proj.total_frames ?? Math.max(1, Math.round((duration || project.value.duration) * fps))
     setProject({
       width: proj.width || 1280,
       height: proj.height || 720,
-      fps: proj.fps || 30,
-      duration: proj.duration || 5,
-      total_frames: proj.total_frames || 150,
+      fps,
+      duration,
+      total_frames: totalFrames,
       mask_expansion: proj.mask_expansion || 0,
       mask_feather: proj.mask_feather || 0
     })
@@ -287,7 +319,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     const layer = currentLayer.value
     if (!layer || !layer.keyframes) return
 
-    const props: (keyof Layer)[] = ['x', 'y', 'scale', 'rotation', 'opacity', 'mask_size']
+    const props: (keyof Layer)[] = [
+      'x', 'y', 'scale', 'rotation', 'opacity', 'mask_size',
+      'rotationX', 'rotationY', 'rotationZ', 'anchorX', 'anchorY', 'perspective'
+    ]
     for (const prop of props) {
       if (layer.keyframes[prop]) {
         layer.keyframes[prop] = layer.keyframes[prop].filter((kf: Keyframe) => kf.time !== currentTime.value)

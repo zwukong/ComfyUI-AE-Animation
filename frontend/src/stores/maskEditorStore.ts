@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import _ from 'es-toolkit/compat'
+import { clamp } from 'es-toolkit'
 
 import {
   BrushShape,
@@ -113,47 +113,47 @@ export const useMaskEditorStore = defineStore('maskEditor', () => {
   })
 
   function setBrushSize(size: number): void {
-    brushSettings.value.size = _.clamp(size, 1, 500)
+    brushSettings.value.size = clamp(size, 1, 500)
   }
 
   function setBrushOpacity(opacity: number): void {
-    brushSettings.value.opacity = _.clamp(opacity, 0, 1)
+    brushSettings.value.opacity = clamp(opacity, 0, 1)
   }
 
   function setBrushHardness(hardness: number): void {
-    brushSettings.value.hardness = _.clamp(hardness, 0, 1)
+    brushSettings.value.hardness = clamp(hardness, 0, 1)
   }
 
   function setBrushStepSize(step: number): void {
-    brushSettings.value.stepSize = _.clamp(step, 1, 100)
+    brushSettings.value.stepSize = clamp(step, 1, 100)
   }
 
   function resetBrushToDefault(): void {
     brushSettings.value.type = BrushShape.Arc
-    brushSettings.value.size = 20
-    brushSettings.value.opacity = 1
+    brushSettings.value.size = 10
+    brushSettings.value.opacity = 0.7
     brushSettings.value.hardness = 1
-    brushSettings.value.stepSize = 5
+    brushSettings.value.stepSize = 10
   }
 
   function setPaintBucketTolerance(tolerance: number): void {
-    paintBucketTolerance.value = _.clamp(tolerance, 0, 255)
+    paintBucketTolerance.value = clamp(tolerance, 0, 255)
   }
 
   function setFillOpacity(opacity: number): void {
-    fillOpacity.value = _.clamp(opacity, 0, 100)
+    fillOpacity.value = clamp(opacity, 0, 100)
   }
 
   function setColorSelectTolerance(tolerance: number): void {
-    colorSelectTolerance.value = _.clamp(tolerance, 0, 255)
+    colorSelectTolerance.value = clamp(tolerance, 0, 255)
   }
 
   function setMaskTolerance(tolerance: number): void {
-    maskTolerance.value = _.clamp(tolerance, 0, 255)
+    maskTolerance.value = clamp(tolerance, 0, 255)
   }
 
   function setSelectionOpacity(opacity: number): void {
-    selectionOpacity.value = _.clamp(opacity, 0, 100)
+    selectionOpacity.value = clamp(opacity, 0, 100)
   }
 
   function setZoomRatio(ratio: number): void {
@@ -177,7 +177,7 @@ export const useMaskEditorStore = defineStore('maskEditor', () => {
   }
 
   function setMaskOpacity(opacity: number): void {
-    maskOpacity.value = _.clamp(opacity, 0, 1)
+    maskOpacity.value = clamp(opacity, 0, 1)
   }
 
   function resetState(): void {

@@ -1,47 +1,49 @@
 <template>
   <div class="canvas-preview" ref="containerRef">
-    <!-- WebGPU Canvas (hidden when not using GPU) -->
-    <canvas 
-      v-show="useGPU"
-      ref="gpuCanvasRef"
-      :width="store.project.width"
-      :height="store.project.height"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
-      @wheel.prevent="onWheel"
-      @contextmenu.prevent
-      tabindex="0"
-      @keydown="onKeyDown"
-    />
-    <!-- Canvas 2D Fallback -->
-    <canvas 
-      v-show="!useGPU"
-      ref="canvasRef"
-      :width="store.project.width"
-      :height="store.project.height"
-      @mousedown="onMouseDown"
-      @mousemove="onMouseMove"
-      @mouseup="onMouseUp"
-      @mouseleave="onMouseUp"
-      @wheel.prevent="onWheel"
-      @contextmenu.prevent
-      tabindex="0"
-      @keydown="onKeyDown"
-    />
-    <div class="canvas-info">
-      <span v-if="store.currentLayer">
-        <span class="gpu-badge" v-if="useGPU">GPU</span>
-        Layer {{ store.currentLayerIndex + 1 }} | X:{{ Math.round(store.currentLayer.x || 0) }} Y:{{ Math.round(store.currentLayer.y || 0) }} S:{{ (store.currentLayer.scale || 1).toFixed(2) }} R:{{ Math.round(store.currentLayer.rotation || 0) }}°
-      </span>
-      <span v-else>No layer selected</span>
+    <div class="canvas-wrapper">
+      <!-- WebGPU Canvas (hidden when not using GPU) -->
+      <canvas 
+        v-show="useGPU"
+        ref="gpuCanvasRef"
+        :width="store.project.width"
+        :height="store.project.height"
+        @mousedown="onMouseDown"
+        @mousemove="onMouseMove"
+        @mouseup="onMouseUp"
+        @mouseleave="onMouseUp"
+        @wheel.prevent="onWheel"
+        @contextmenu.prevent
+        tabindex="0"
+        @keydown="onKeyDown"
+      />
+      <!-- Canvas 2D Fallback -->
+      <canvas 
+        v-show="!useGPU"
+        ref="canvasRef"
+        :width="store.project.width"
+        :height="store.project.height"
+        @mousedown="onMouseDown"
+        @mousemove="onMouseMove"
+        @mouseup="onMouseUp"
+        @mouseleave="onMouseUp"
+        @wheel.prevent="onWheel"
+        @contextmenu.prevent
+        tabindex="0"
+        @keydown="onKeyDown"
+      />
+      <div class="canvas-info">
+        <span v-if="store.currentLayer">
+          <span class="gpu-badge" v-if="useGPU">GPU</span>
+          Layer {{ store.currentLayerIndex + 1 }} | X:{{ Math.round(store.currentLayer.x || 0) }} Y:{{ Math.round(store.currentLayer.y || 0) }} S:{{ (store.currentLayer.scale || 1).toFixed(2) }} R:{{ Math.round(store.currentLayer.rotation || 0) }}°
+        </span>
+        <span v-else>No layer selected</span>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { useTimelineStore } from '@/stores/timelineStore'
 import TGPU from 'typegpu'
 
@@ -76,6 +78,8 @@ let gpuPipeline: GPURenderPipeline | null = null
 let gpuUniformBuffer: GPUBuffer | null = null
 let gpuBindGroupLayout: GPUBindGroupLayout | null = null
 
+let resizeObserver: ResizeObserver | null = null
+
 onMounted(async () => {
   // 先初始化 Canvas 2D 作为后备
   if (canvasRef.value) {
@@ -88,13 +92,103 @@ onMounted(async () => {
   // 尝试初始化 WebGPU
   await initWebGPU()
   
+  // 等待 DOM 完全渲染后再更新尺寸
+  await nextTick()
+  // 使用 setTimeout 确保容器尺寸已计算
+  setTimeout(() => {
+    updateCanvasDisplaySize()
+  }, 0)
+  
+  // 监听容器尺寸变化
+  if (containerRef.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      // 使用 requestAnimationFrame 避免频繁更新
+      requestAnimationFrame(() => {
+        updateCanvasDisplaySize()
+      })
+    })
+    resizeObserver.observe(containerRef.value)
+  }
+  
+  // 监听项目尺寸变化，更新显示尺寸
+  watch(() => [store.project.width, store.project.height], () => {
+    nextTick(() => {
+      updateCanvasDisplaySize()
+    })
+  })
+  
   scheduleRender()
 })
 
 onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
   imageCache.clear()
   destroyGPU()
 })
+
+function updateCanvasDisplaySize() {
+  if (!containerRef.value) return
+  
+  const container = containerRef.value
+  const containerWidth = container.clientWidth
+  const containerHeight = container.clientHeight
+  
+  // 如果容器尺寸为 0，尝试使用 offsetWidth/offsetHeight
+  const actualWidth = containerWidth || container.offsetWidth || 0
+  const actualHeight = containerHeight || container.offsetHeight || 0
+  
+  if (actualWidth === 0 || actualHeight === 0) {
+    // 如果还是 0，延迟重试
+    setTimeout(() => {
+      updateCanvasDisplaySize()
+    }, 100)
+    return
+  }
+  
+  const projectWidth = store.project.width || 1280
+  const projectHeight = store.project.height || 720
+  const aspectRatio = projectWidth / projectHeight
+  
+  // 计算适合容器的尺寸，保持宽高比
+  // 留出一些边距（10px）
+  const padding = 10
+  const maxWidth = actualWidth - padding * 2
+  const maxHeight = actualHeight - padding * 2
+  
+  let displayWidth = maxWidth
+  let displayHeight = maxWidth / aspectRatio
+  
+  if (displayHeight > maxHeight) {
+    displayHeight = maxHeight
+    displayWidth = maxHeight * aspectRatio
+  }
+  
+  // 确保最小尺寸
+  if (displayWidth < 100) displayWidth = 100
+  if (displayHeight < 100) displayHeight = 100
+  
+  // 设置 canvas 的显示尺寸（CSS）
+  const canvas = canvasRef.value
+  const gpuCanvas = gpuCanvasRef.value
+  
+  if (canvas) {
+    canvas.style.width = displayWidth + 'px'
+    canvas.style.height = displayHeight + 'px'
+    canvas.style.maxWidth = '100%'
+    canvas.style.maxHeight = '100%'
+  }
+  
+  if (gpuCanvas) {
+    gpuCanvas.style.width = displayWidth + 'px'
+    gpuCanvas.style.height = displayHeight + 'px'
+    gpuCanvas.style.maxWidth = '100%'
+    gpuCanvas.style.maxHeight = '100%'
+  }
+}
+
 
 // 初始化 WebGPU
 async function initWebGPU() {
@@ -632,6 +726,25 @@ function drawBezierPath(ctx: CanvasRenderingContext2D, path: any[]) {
   ctx.restore()
 }
 
+// 将 customMask DataURL 懒加载为 maskCanvas，供渲染和后续编辑使用
+function ensureMaskCanvas(layer: any, imgW: number, imgH: number) {
+  if (layer.maskCanvas || !layer.customMask) return
+
+  const maskImg = new Image()
+  maskImg.onload = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = maskImg.width || imgW
+    canvas.height = maskImg.height || imgH
+    const mCtx = canvas.getContext('2d')
+    if (mCtx) {
+      mCtx.drawImage(maskImg, 0, 0, canvas.width, canvas.height)
+      layer.maskCanvas = canvas
+      scheduleRender()
+    }
+  }
+  maskImg.src = layer.customMask
+}
+
 function drawBackgroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const img = getCachedImage(layer)
   if (!img || img.width === 0 || img.height === 0) return
@@ -690,6 +803,9 @@ function drawForegroundLayer(ctx: CanvasRenderingContext2D, layer: any) {
   const props = getLayerProps(layer)
   const w = img.width
   const h = img.height
+
+  // 将持久化的 customMask 还原成可用的 maskCanvas，避免重开界面后遮罩丢失
+  ensureMaskCanvas(layer, w, h)
 
   ctx.save()
   
@@ -1130,7 +1246,7 @@ function inpaintSimple(ctx: CanvasRenderingContext2D, width: number, height: num
   
   // 4. 边缘扩散 (简单的膨胀算法)
   // 通过多次绘制并微小偏移，将边缘像素"推"进透明区域
-  const steps = 8 // 扩散次数
+  const steps = 20 // 增加扩散次数以更好地填充，不使用模糊
   tCtx.globalCompositeOperation = 'destination-over' // 在下方绘制，避免覆盖已有像素
   
   for (let i = 0; i < steps; i++) {
@@ -1149,23 +1265,17 @@ function inpaintSimple(ctx: CanvasRenderingContext2D, width: number, height: num
     }
   }
   
-  // 5. 强力模糊填充 (填补剩余大洞)
-  const blurC = document.createElement('canvas')
-  blurC.width = width / 8 // 降采样
-  blurC.height = height / 8
-  const bCtx = blurC.getContext('2d')
-  if (bCtx) {
-      bCtx.drawImage(tempC, 0, 0, blurC.width, blurC.height)
-      bCtx.filter = 'blur(4px)' // 在小图上模糊相当于大图的大模糊
-      bCtx.drawImage(blurC, 0, 0)
-      bCtx.drawImage(blurC, 0, 0) // 加强颜色
-      
-      // 将模糊底图画在最下面
-      tCtx.save()
-      tCtx.globalCompositeOperation = 'destination-over'
-      tCtx.filter = 'blur(8px)' // 再次模糊以柔和边缘
-      tCtx.drawImage(blurC, 0, 0, width, height)
-      tCtx.restore()
+  // 5. 直接像素填充，不再使用高斯模糊
+  // 继续使用边缘扩散算法填充剩余区域
+  for (let i = 0; i < 10; i++) {
+    tCtx.drawImage(tempC, 2, 0)
+    tCtx.drawImage(tempC, -2, 0)
+    tCtx.drawImage(tempC, 0, 2)
+    tCtx.drawImage(tempC, 0, -2)
+    tCtx.drawImage(tempC, 2, 2)
+    tCtx.drawImage(tempC, -2, -2)
+    tCtx.drawImage(tempC, 2, -2)
+    tCtx.drawImage(tempC, -2, 2)
   }
 
   return tempC.toDataURL('image/png')
@@ -1214,9 +1324,13 @@ function applyExtractSelection() {
   bgCtx.globalCompositeOperation = 'source-over' // 恢复
   const backgroundDataUrl = inpaintSimple(bgCtx, img.width, img.height) || img.src // 失败则回退
 
+  // 3. 保存 Extract Mask 数据 (用于后续编辑)
+  const extractMaskDataUrl = extractMaskCanvas.toDataURL('image/png')
+  
   return { 
       foregroundDataUrl,
-      backgroundDataUrl 
+      backgroundDataUrl,
+      extractMaskDataUrl  // Extract 图层的 Mask 数据
   }
 }
 
@@ -1378,23 +1492,43 @@ defineExpose({
 .canvas-preview {
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
+  overflow: visible;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.canvas-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
 }
 
 canvas {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   cursor: move;
-  max-width: calc(100% - 20px);
-  max-height: calc(100% - 40px);
+  /* 关键修复：显示尺寸由 JavaScript 动态设置（通过 style.width 和 style.height） */
+  /* 内部分辨率由 :width 和 :height 属性决定，用于渲染质量 */
+  /* CSS 只设置基本样式，不设置尺寸 */
   outline: none;
   /* GPU 加速 */
   will-change: contents;
   transform: translateZ(0);
   image-rendering: -webkit-optimize-contrast;
+  box-sizing: border-box;
+  display: block;
+  /* 确保 canvas 不会溢出 */
+  contain: layout style paint;
 }
 
 canvas:focus {
@@ -1403,15 +1537,18 @@ canvas:focus {
 
 .canvas-info {
   position: absolute;
-  bottom: 8px;
+  top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.7);
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.8);
   color: #aaa;
   font-size: 11px;
   padding: 4px 12px;
   border-radius: 4px;
   white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
 }
 
 .gpu-badge {

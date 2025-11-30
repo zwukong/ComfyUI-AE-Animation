@@ -10,22 +10,29 @@
       <div class="toolbar-left">
         <button class="tb-btn accent" @click="exportProject" title="保存工程文件 (.json)">💾 Save Proj</button>
         <button class="tb-btn" @click="triggerLoadProject" title="加载工程文件">📂 Load Proj</button>
+        <button class="tb-btn" @click="clearCache" title="清理未选图层的图像缓存">🧹 清缓存</button>
+        <select class="tb-select" v-model="fitMode" title="背景适配模式">
+          <option value="fit">Fit</option>
+          <option value="fill">Fill</option>
+          <option value="stretch">Stretch</option>
+        </select>
       </div>
       
       <div class="toolbar-center">
-        <button class="tb-btn" @click="addForeground" title="添加前景图层">+ Layer</button>
-        <button class="tb-btn" @click="addBackground" title="添加背景图层">+ BG</button>
+        <button class="tb-btn btn-green" @click="addForeground" title="添加前景图层">＋图片</button>
+        <button class="tb-btn btn-blue" @click="addBackground" title="添加背景图层">＋背景</button>
         <span class="tb-sep"></span>
         <button class="tb-btn" @click="seekToZero" title="回到起点">|◀</button>
-        <button class="tb-btn" :class="{active: store.isPlaying}" @click="store.togglePlayback" title="播放/暂停">
+        <button class="tb-btn btn-play" :class="{active: store.isPlaying}" @click="store.togglePlayback" title="播放/暂停">
           {{ store.isPlaying ? '■' : '▶' }}
         </button>
         <span class="tb-sep"></span>
-        <button class="tb-btn accent" @click="addKeyframe" title="添加关键帧 (K)">◆ Key</button>
-        <button class="tb-btn" @click="deleteCurrentKeyframe" title="删除关键帧">✕ Key</button>
+        <button class="tb-btn btn-amber" @click="addKeyframe" title="添加关键帧 (K)">◆ Key</button>
+        <button class="tb-btn btn-red" @click="deleteCurrentKeyframe" title="删除关键帧">✕ Key</button>
+        <button class="tb-btn btn-red" @click="clearAllKeyframes" title="清除所有关键帧">ALL</button>
         <span class="tb-sep"></span>
         <!-- 工具栏 -->
-        <button class="tb-btn" :class="{active: store.maskMode.enabled}" @click="toggleMask" title="遮罩绘制模式">🖌 Mask</button>
+        <button class="tb-btn btn-mask" :class="{active: store.maskMode.enabled}" @click="toggleMask" title="遮罩绘制模式">🖌 Mask</button>
         <button 
           v-if="store.maskMode.enabled" 
           class="tb-btn" 
@@ -35,8 +42,8 @@
         >
           🧽 Erase
         </button>
-        <button class="tb-btn" :class="{active: store.pathMode.enabled}" @click="togglePath" title="路径动画模式">📍 Path</button>
-        <button class="tb-btn" :class="{active: store.extractMode.enabled}" @click="toggleExtract" title="背景提取模式">✂ Extract</button>
+        <button class="tb-btn btn-path" :class="{active: store.pathMode.enabled}" @click="togglePath" title="路径动画模式">📍 Path</button>
+        <button class="tb-btn btn-extract" :class="{active: store.extractMode.enabled}" @click="toggleExtract" title="背景提取模式">✂ Extract</button>
         
         <!-- Extract 操作组 -->
         <div v-if="store.extractMode.enabled" class="extract-actions">
@@ -44,6 +51,8 @@
           <button class="tb-btn" @click="clearExtractSelection" title="清空提取选区">⟲ Clear</button>
         </div>
 
+        <button class="tb-btn" @click="refreshPreview" title="刷新预览（从缓存加载）">🔄</button>
+        <button class="tb-btn btn-run" @click="runNode" title="运行节点">⚡ Run</button>
         <span class="tb-sep"></span>
         <span class="tb-time">{{ formatTime(store.currentTime) }}</span>
         <button class="tb-btn save" @click="save">保存到节点</button>
@@ -119,9 +128,17 @@
                class="layer-item" 
                :class="{active: i === store.currentLayerIndex}"
                @click="store.selectLayer(i)">
+            <input 
+              type="checkbox" 
+              class="layer-check" 
+              :checked="i === store.currentLayerIndex" 
+              @click.stop 
+              @change="store.selectLayer(i)"
+              :aria-label="`Select ${displayLayerName(layer, i)}`"
+            />
             <span class="layer-vis" @click.stop="toggleVis(layer)">👁</span>
             <span class="layer-badge" :class="layer.type">{{ layer.type === 'background' ? 'BG' : 'FG' }}</span>
-            <span class="layer-name">{{ layer.name || ('Layer ' + (i + 1)) }}</span>
+            <span class="layer-name" :title="layer.name || displayLayerName(layer, i)">{{ displayLayerName(layer, i) }}</span>
             <button class="layer-del" @click.stop="store.removeLayer(i)">🗑</button>
           </div>
         </div>
@@ -129,20 +146,20 @@
       
       <!-- 右侧：时间轴 (Scrollable Container) -->
       <div class="timeline-area" ref="timelineRef">
-        <div class="timeline-content" :style="{ width: timelineWidth + 'px' }">
+        <div class="timeline-content" :style="{ width: timelineWidth + 'px', '--tick-size': pixelsPerSecond + 'px' }">
           <!-- 时间标尺 -->
           <div class="timeline-ruler" 
                @mousedown="onRulerMouseDown" 
                @mousemove="onRulerMouseMove" 
                @mouseup="onRulerMouseUp"
                @mouseleave="onRulerMouseUp">
-            <div v-for="i in Math.ceil(store.project.duration) + 1" :key="i" 
+            <div v-for="i in Math.ceil(projectDuration) + 1" :key="i" 
                  class="tick" 
-                 :style="{ left: ((i-1) * PIXELS_PER_SECOND) + 'px' }">
+                 :style="{ left: ((i-1) * pixelsPerSecond) + 'px' }">
               <span class="tick-label">{{ i-1 }}s</span>
             </div>
             <!-- 播放头 -->
-            <div class="playhead-top" :style="{ left: (store.currentTime * PIXELS_PER_SECOND) + 'px' }"></div>
+            <div class="playhead-top" :style="{ left: (store.currentTime * pixelsPerSecond) + 'px' }"></div>
           </div>
           
           <!-- 轨道列表 -->
@@ -155,7 +172,7 @@
                 <button class="track-expand" @click.stop="toggleLayerExpand(layerIdx)">
                   {{ expandedLayers.has(layerIdx) ? '▼' : '▶' }}
                 </button>
-                <span class="track-bar" :style="{ width: (store.project.duration * PIXELS_PER_SECOND) + 'px' }"></span>
+                <span class="track-bar" :style="{ width: (projectDuration * pixelsPerSecond) + 'px' }"></span>
               </div>
               
               <!-- 属性展开行 -->
@@ -170,7 +187,7 @@
                     <div v-for="kf in getPropertyKeyframes(layer, prop.key)" :key="kf.time"
                          class="keyframe"
                          :class="{selected: isKeyframeSelected(layerIdx, prop.key, kf.time)}"
-                         :style="{ left: (kf.time * PIXELS_PER_SECOND) + 'px' }"
+                         :style="{ left: (kf.time * pixelsPerSecond) + 'px' }"
                          :title="`${prop.label}: ${formatValue(kf.value, prop.key)} @ ${kf.time.toFixed(2)}s`"
                          @mousedown.stop="onKeyframeDragStart($event, layerIdx, prop.key, kf)"
                          @click.stop="selectKeyframe(layerIdx, prop.key, kf.time)"
@@ -183,7 +200,7 @@
           </div>
           
           <!-- 全局播放头线 -->
-          <div class="playhead-line" :style="{ left: (store.currentTime * PIXELS_PER_SECOND) + 'px' }"></div>
+          <div class="playhead-line" :style="{ left: (store.currentTime * pixelsPerSecond) + 'px' }"></div>
         </div>
       </div>
     </div>
@@ -195,11 +212,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useTimelineStore } from '@/stores/timelineStore'
 import CanvasPreview from '@/components/timeline/CanvasPreview.vue'
 
-const PIXELS_PER_SECOND = 60 // 1秒 = 60像素 (更精确的控制)
+const BASE_PIXELS_PER_SECOND = 60 // 最小像素密度，视口不够时再放大填满
 
 const props = defineProps<{ node: any }>()
 const store = useTimelineStore()
@@ -207,20 +224,73 @@ const canvasPreviewRef = ref<InstanceType<typeof CanvasPreview> | null>(null)
 const fileInput = ref<HTMLInputElement>()
 const projectInput = ref<HTMLInputElement>()
 const timelineRef = ref<HTMLDivElement>()
+const containerWidth = ref(0)
 let pendingType: 'foreground' | 'background' = 'foreground'
 let isDraggingRuler = false
+let resizeObserver: ResizeObserver | null = null
+
+const getWidget = (name: string) => props.node?.widgets?.find((x: any) => x.name === name)
+function toNumber(value: any, fallback: number) {
+  const num = typeof value === 'number' ? value : parseFloat(value)
+  return Number.isFinite(num) ? num : fallback
+}
+
+// 项目设置表单
+const projectForm = reactive({
+  width: store.project.width,
+  height: store.project.height,
+  fps: store.project.fps,
+  total_frames: store.project.total_frames
+})
+
+// Fit 模式
+const fitMode = ref<'fit' | 'fill' | 'stretch'>('fit')
+
+// 项目时长计算
+const projectDuration = computed(() => {
+  const fps = Math.max(1, store.project.fps || 1)
+  return store.project.duration || (store.project.total_frames / fps) || 0
+})
+
+const pixelsPerSecond = computed(() => {
+  const duration = Math.max(0.001, projectDuration.value || 0)
+  const width = containerWidth.value || timelineRef.value?.clientWidth || 0
+  const fit = width ? width / duration : BASE_PIXELS_PER_SECOND
+  return Math.max(BASE_PIXELS_PER_SECOND, fit)
+})
 
 // 计算总宽度，确保滚动
 const timelineWidth = computed(() => {
-  return Math.max(
-    store.project.duration * PIXELS_PER_SECOND + 100, // 额外留白
-    timelineRef.value?.clientWidth || 0
-  )
+  const extra = 120 // 额外留白，便于拖动
+  return Math.max(projectDuration.value * pixelsPerSecond.value + extra, containerWidth.value || 0)
 })
 
 watch(() => store.extractMode.enabled, (enabled) => {
   if (!enabled) {
     canvasPreviewRef.value?.clearExtractSelection?.()
+  }
+})
+
+function syncTimelineWidth() {
+  if (!timelineRef.value) return
+  const parentWidth = timelineRef.value.parentElement?.clientWidth || timelineRef.value.getBoundingClientRect().width || 0
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : parentWidth
+  containerWidth.value = Math.min(parentWidth || viewportWidth, viewportWidth)
+}
+
+onMounted(() => {
+  loadFromNodeWidgets()
+  syncTimelineWidth()
+  if (typeof ResizeObserver !== 'undefined' && timelineRef.value) {
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry?.contentRect) {
+        containerWidth.value = entry.contentRect.width
+      }
+    })
+    resizeObserver.observe(timelineRef.value)
+  } else {
+    window.addEventListener('resize', syncTimelineWidth)
   }
 })
 let isDraggingKeyframe = false
@@ -323,15 +393,40 @@ function getTimeFromEvent(e: MouseEvent): number {
   
   const rect = content.getBoundingClientRect()
   const scrollLeft = timelineRef.value.scrollLeft
-  const clickX = e.clientX - rect.left // 相对于内容左侧的距离
+  const clickX = e.clientX - rect.left + scrollLeft // 相对于内容左侧的距离，加入滚动偏移
+
+  const pps = pixelsPerSecond.value || BASE_PIXELS_PER_SECOND
   
-  const time = Math.max(0, clickX / PIXELS_PER_SECOND)
-  return Math.min(time, store.project.duration)
+  // 如果点击位置在0点附近（容差10像素）或小于等于0，直接返回0，确保可以精确到达0点
+  // 这样可以处理拖拽时鼠标稍微偏移的情况
+  if (clickX <= 10) {
+    return 0
+  }
+  
+  const time = clickX / pps
+  // 确保时间不为负数，并且不超过项目时长
+  return Math.max(0, Math.min(time, projectDuration.value))
 }
 
 function onRulerMouseDown(e: MouseEvent) {
+  e.preventDefault()
   isDraggingRuler = true
   store.setCurrentTime(getTimeFromEvent(e))
+  
+  // 使用全局事件监听，确保拖拽时即使鼠标移出ruler也能继续跟踪
+  const onGlobalMove = (moveE: MouseEvent) => {
+    if (!isDraggingRuler) return
+    store.setCurrentTime(getTimeFromEvent(moveE))
+  }
+  
+  const onGlobalUp = () => {
+    isDraggingRuler = false
+    document.removeEventListener('mousemove', onGlobalMove)
+    document.removeEventListener('mouseup', onGlobalUp)
+  }
+  
+  document.addEventListener('mousemove', onGlobalMove)
+  document.addEventListener('mouseup', onGlobalUp)
 }
 
 function onRulerMouseMove(e: MouseEvent) {
@@ -356,7 +451,8 @@ function addKeyframeAt(e: MouseEvent, layerIdx: number, prop: string) {
   const target = e.currentTarget as HTMLElement
   const rect = target.getBoundingClientRect()
   const localX = e.clientX - rect.left
-  const time = Math.max(0, localX / PIXELS_PER_SECOND)
+  const pps = pixelsPerSecond.value || BASE_PIXELS_PER_SECOND
+  const time = Math.max(0, localX / pps)
   
   const layer = store.layers[layerIdx]
   if (!layer) return
@@ -392,12 +488,13 @@ function onKeyframeDragStart(e: MouseEvent, layerIdx: number, prop: string, kf: 
   
   const startX = e.clientX
   const startTime = kf.time
+  const pps = pixelsPerSecond.value || BASE_PIXELS_PER_SECOND
   
   const onMove = (moveE: MouseEvent) => {
     if (!isDraggingKeyframe || !draggingKeyframeData) return
     
     const diffX = moveE.clientX - startX
-    const diffTime = diffX / PIXELS_PER_SECOND
+    const diffTime = diffX / pps
     let newTime = Math.max(0, startTime + diffTime)
     
     // 更新
@@ -457,6 +554,59 @@ function onTracksScroll(e: Event) {
   const target = e.target as HTMLElement
   const sidebar = document.querySelector('.layers-list') as HTMLElement
   if (sidebar) sidebar.scrollTop = target.scrollTop
+}
+
+function loadFromNodeWidgets() {
+  if (!props.node?.widgets) return
+
+  const width = toNumber(getWidget('width')?.value, store.project.width)
+  const height = toNumber(getWidget('height')?.value, store.project.height)
+  const fps = Math.max(1, toNumber(getWidget('fps')?.value, store.project.fps))
+  const totalFrames = Math.max(1, Math.round(toNumber(getWidget('total_frames')?.value, store.project.total_frames)))
+  const maskExpansion = toNumber(getWidget('mask_expansion')?.value, store.project.mask_expansion)
+  const maskFeather = toNumber(getWidget('mask_feather')?.value, store.project.mask_feather)
+
+  let layers: any[] = []
+  const rawLayers = getWidget('layers_keyframes')?.value
+  if (typeof rawLayers === 'string' && rawLayers.trim()) {
+    try {
+      const parsed = JSON.parse(rawLayers)
+      if (Array.isArray(parsed)) layers = parsed
+    } catch (err) {
+      console.warn('[AE Timeline] Failed to parse layers_keyframes widget', err)
+    }
+  } else if (Array.isArray(rawLayers)) {
+    layers = rawLayers
+  }
+
+  const projectData = {
+    width,
+    height,
+    fps,
+    total_frames: totalFrames,
+    duration: totalFrames / fps,
+    mask_expansion: maskExpansion,
+    mask_feather: maskFeather
+  }
+
+  store.loadAnimation({
+    project: projectData,
+    layers
+  })
+
+  projectForm.width = store.project.width
+  projectForm.height = store.project.height
+  projectForm.fps = store.project.fps
+  projectForm.total_frames = store.project.total_frames
+
+  if (store.layers.length > 0 && store.currentLayerIndex < 0) {
+    store.selectLayer(0)
+  }
+}
+
+function displayLayerName(layer: any, index: number) {
+  if (layer.type === 'background') return 'BG'
+  return `Layer ${index + 1}`
 }
 
 // --- 工程管理 (Export/Import) ---
@@ -525,18 +675,60 @@ function save() {
       const jsonStr = JSON.stringify(anim.layers)
       lw.value = jsonStr
       console.log(`[AE Timeline] Saved layers_keyframes (len=${jsonStr.length})`)
+      // Trigger widget update
+      if (lw.inputEl) {
+          lw.inputEl.value = jsonStr
+          lw.inputEl.dispatchEvent(new Event("input"))
+      }
+      if (lw.callback) lw.callback(jsonStr)
+      if (props.node.widgets_values) {
+          const widgetIndex = props.node.widgets.indexOf(lw)
+          if (widgetIndex >= 0) props.node.widgets_values[widgetIndex] = jsonStr
+      }
+      props.node.setDirtyCanvas?.(true, false)
   } else {
       console.error('[AE Timeline] Widget layers_keyframes not found!')
   }
   
   const ww = findWidget('width')
-  if (ww) ww.value = store.project.width
+  if (ww) {
+    ww.value = store.project.width
+    if (ww.inputEl) {
+      ww.inputEl.value = store.project.width
+      ww.inputEl.dispatchEvent(new Event("input"))
+    }
+    if (ww.callback) ww.callback(store.project.width)
+  }
   const hw = findWidget('height')
-  if (hw) hw.value = store.project.height
+  if (hw) {
+    hw.value = store.project.height
+    if (hw.inputEl) {
+      hw.inputEl.value = store.project.height
+      hw.inputEl.dispatchEvent(new Event("input"))
+    }
+    if (hw.callback) hw.callback(store.project.height)
+  }
   const fw = findWidget('fps')
-  if (fw) fw.value = store.project.fps
+  if (fw) {
+    fw.value = store.project.fps
+    if (fw.inputEl) {
+      fw.inputEl.value = store.project.fps
+      fw.inputEl.dispatchEvent(new Event("input"))
+    }
+    if (fw.callback) fw.callback(store.project.fps)
+  }
   const tw = findWidget('total_frames')
-  if (tw) tw.value = store.project.total_frames
+  if (tw) {
+    tw.value = store.project.total_frames
+    if (tw.inputEl) {
+      tw.inputEl.value = store.project.total_frames
+      tw.inputEl.dispatchEvent(new Event("input"))
+    }
+    if (tw.callback) tw.callback(store.project.total_frames)
+  }
+  
+  // 确保节点标记为脏，触发更新
+  props.node.setDirtyCanvas?.(true, false)
 }
 
 function close() {
@@ -548,6 +740,61 @@ function close() {
 function addKeyframe() { store.addKeyframe() }
 function deleteCurrentKeyframe() { store.deleteKeyframe() }
 function seekToZero() { store.setCurrentTime(0) }
+
+function clearAllKeyframes() {
+  if (!store.currentLayer) return
+  if (!confirm('确定要清除所有关键帧吗？')) return
+  
+  const layer = store.currentLayer
+  const props: (keyof typeof layer)[] = ['x', 'y', 'scale', 'rotation', 'opacity', 'mask_size']
+  props.forEach(prop => {
+    if (layer.keyframes?.[prop]) {
+      layer.keyframes[prop] = []
+    }
+  })
+}
+
+function clearCache() {
+  // 清理未选图层的图像缓存
+  store.layers.forEach((layer, idx) => {
+    if (idx !== store.currentLayerIndex && layer.image_data) {
+      // 可以在这里实现缓存清理逻辑
+      console.log(`[AE Timeline] Clearing cache for layer ${layer.id}`)
+    }
+  })
+}
+
+function refreshPreview() {
+  // 刷新预览（从缓存加载）
+  canvasPreviewRef.value?.scheduleRender?.()
+  console.log('[AE Timeline] Preview refreshed')
+}
+
+function runNode() {
+  // 运行节点
+  if (props.node) {
+    // 触发节点执行
+    const graph = props.node.graph
+    if (graph && (window as any).app) {
+      (window as any).app.queuePrompt?.(0)
+    }
+  }
+}
+
+function applyProject() {
+  // 应用项目设置
+  store.setProject({
+    width: projectForm.width,
+    height: projectForm.height,
+    fps: projectForm.fps,
+    total_frames: projectForm.total_frames
+  })
+  // 同步表单
+  projectForm.width = store.project.width
+  projectForm.height = store.project.height
+  projectForm.fps = store.project.fps
+  projectForm.total_frames = store.project.total_frames
+}
 
 function toggleMask() {
   const next = !store.maskMode.enabled
@@ -687,6 +934,16 @@ function moveLayer(d: number) {
     store.selectLayer(n)
   }
 }
+
+// 自动在组件卸载前保存，避免关闭对话框后数据丢失未写回节点
+onBeforeUnmount(() => {
+  if (resizeObserver && timelineRef.value) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  window.removeEventListener('resize', syncTimelineWidth)
+  save()
+})
 </script>
 
 <style>
@@ -694,20 +951,25 @@ function moveLayer(d: number) {
 .ae-vue-timeline-root {
   width: 100% !important;
   height: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* 主布局 Grid：4 行 */
 .ae-vue-timeline-root .root {
-  display: grid !important;
-  grid-template-rows: 1fr 44px 36px 200px !important; /* 底部增高 */
-  grid-template-columns: 1fr !important;
+  display: flex !important;
+  flex-direction: column;
   width: 100% !important;
   height: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
   background: #1a1a1a;
   color: #ddd;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 /* 1. 画布区域 */
@@ -716,8 +978,17 @@ function moveLayer(d: number) {
   align-items: center; 
   justify-content: center; 
   background: #0f0f0f; 
-  overflow: hidden; 
+  overflow: visible; 
   border-bottom: 1px solid #333;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  /* 画布占据剩余空间的主要部分（约60%-70%），自适应 */
+  flex: 3 1 0;
+  min-height: 0;
+  box-sizing: border-box;
+  padding-bottom: 32px;
 }
 
 /* 2. 工具栏 */
@@ -728,6 +999,9 @@ function moveLayer(d: number) {
   padding: 0 12px; 
   background: #252525; 
   border-bottom: 1px solid #000; 
+  height: 36px;
+  flex: 0 0 36px;
+  min-width: 0;
 }
 
 .ae-vue-timeline-root .toolbar-left,
@@ -763,6 +1037,25 @@ function moveLayer(d: number) {
 .ae-vue-timeline-root .tb-btn.active { background: #3a7bc8; color: #fff; border-color: #5dade2; }
 .ae-vue-timeline-root .tb-btn.accent { background: #2d5a3d; color: #fff; border-color: #4caf50; }
 .ae-vue-timeline-root .tb-btn.close { background: #c83a3a; color: #fff; border-color: #e57373; }
+.ae-vue-timeline-root .tb-btn.btn-green { background: #2d5a3d; color: #fff; border-color: #4caf50; }
+.ae-vue-timeline-root .tb-btn.btn-blue { background: #1e3a5f; color: #fff; border-color: #3a7bc8; }
+.ae-vue-timeline-root .tb-btn.btn-amber { background: #5a4a2d; color: #fff; border-color: #ffa726; }
+.ae-vue-timeline-root .tb-btn.btn-red { background: #5a2d2d; color: #fff; border-color: #e57373; }
+.ae-vue-timeline-root .tb-btn.btn-mask { background: #3d2d5a; color: #fff; border-color: #9c27b0; }
+.ae-vue-timeline-root .tb-btn.btn-path { background: #2d5a4a; color: #fff; border-color: #4caf50; }
+.ae-vue-timeline-root .tb-btn.btn-extract { background: #5a4a2d; color: #fff; border-color: #ffa726; }
+.ae-vue-timeline-root .tb-btn.btn-play { background: #2d5a3d; color: #fff; border-color: #4caf50; }
+.ae-vue-timeline-root .tb-btn.btn-run { background: #c8a33a; color: #fff; border-color: #ffa726; }
+.ae-vue-timeline-root .tb-select {
+  background: #2d2d2d;
+  border: 1px solid #3c3c3c;
+  color: #fff;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 10px;
+  cursor: pointer;
+  margin-left: 4px;
+}
 .ae-vue-timeline-root .tb-sep { width: 1px; height: 18px; background: #444; margin: 0 4px; }
 .ae-vue-timeline-root .tb-time { color: #3a7bc8; font-family: "Consolas", monospace; font-size: 12px; font-weight: bold; min-width: 60px; text-align: center; }
 
@@ -775,6 +1068,10 @@ function moveLayer(d: number) {
   padding: 0 16px; 
   background: #1f1f1f; 
   border-bottom: 1px solid #000; 
+  height: 28px;
+  flex: 0 0 28px;
+  min-width: 0;
+  font-size: 11px;
 }
 
 .ae-vue-timeline-root .param-label { font-weight: bold; color: #ddd; margin-right: 8px; font-size: 11px; }
@@ -804,6 +1101,9 @@ function moveLayer(d: number) {
   display: flex; 
   background: #1e1e1e; 
   overflow: hidden;
+  height: 180px;
+  flex: 0 0 180px;
+  min-width: 0;
 }
 
 /* 图层列表 */
@@ -850,6 +1150,12 @@ function moveLayer(d: number) {
 
 .ae-vue-timeline-root .layer-vis { color: #666; cursor: pointer; font-size: 10px; }
 .ae-vue-timeline-root .layer-vis:hover { color: #ddd; }
+.ae-vue-timeline-root .layer-check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #3a7bc8;
+}
 .ae-vue-timeline-root .layer-badge { 
   padding: 1px 4px; 
   border-radius: 2px; 
@@ -872,6 +1178,11 @@ function moveLayer(d: number) {
   overflow-x: auto; /* 横向滚动 */
   overflow-y: hidden;
   background: #1a1a1a;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .ae-vue-timeline-root .timeline-content {
@@ -879,6 +1190,19 @@ function moveLayer(d: number) {
   display: flex;
   flex-direction: column;
   position: relative;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #222 0,
+    #222 1px,
+    transparent 1px,
+    transparent calc(var(--tick-size, 60px) - 1px)
+  );
+  background-size: var(--tick-size, 60px) 100%;
+  min-width: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .ae-vue-timeline-root .timeline-ruler { 
@@ -888,6 +1212,9 @@ function moveLayer(d: number) {
   border-bottom: 1px solid #000; 
   position: relative;
   cursor: pointer;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 .ae-vue-timeline-root .timeline-ruler .tick { 
@@ -917,6 +1244,17 @@ function moveLayer(d: number) {
   flex: 1; 
   position: relative; 
   overflow-y: auto; 
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #1f1f1f 0,
+    #1f1f1f 1px,
+    transparent 1px,
+    transparent calc(var(--tick-size, 60px) - 1px)
+  );
+  background-size: var(--tick-size, 60px) 100%;
 }
 
 .ae-vue-timeline-root .track-header {
@@ -929,7 +1267,12 @@ function moveLayer(d: number) {
 }
 .ae-vue-timeline-root .track-bar { 
   height: 100%; 
-  background: repeating-linear-gradient(90deg, transparent 0, transparent 59px, #2a2a2a 60px); 
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(var(--tick-size, 60px) - 1px),
+    #2a2a2a var(--tick-size, 60px)
+  ); 
   opacity: 0.3;
   position: absolute;
   pointer-events: none;
@@ -947,6 +1290,8 @@ function moveLayer(d: number) {
   height: 100%;
   position: relative;
   cursor: crosshair;
+  margin: 0;
+  padding: 0;
 }
 
 /* 关键帧点 */
