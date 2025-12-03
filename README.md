@@ -4,10 +4,9 @@
 
 <div align="center">
 
-<video width="800" controls>
-  <source src="https://raw.githubusercontent.com/wallen0322/ComfyUI-AE-Animation/main/demo.mp4" type="video/mp4">
-  您的浏览器不支持视频播放。
-</video>
+[![演示视频 - 点击观看](https://img.shields.io/badge/🎬-观看演示视频-blue?style=for-the-badge)](https://github.com/wallen0322/ComfyUI-AE-Animation/raw/main/demo.mp4)
+
+**点击上方按钮或 [直接观看视频](https://github.com/wallen0322/ComfyUI-AE-Animation/raw/main/demo.mp4)**
 
 </div>
 
