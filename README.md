@@ -4,22 +4,9 @@
 
 <div align="center">
 
-[![演示视频](https://img.shields.io/badge/🎬-B站观看演示视频-red?style=for-the-badge)](https://www.bilibili.com/video/BV1yW28B3ETN)
+[![演示视频 - 点击观看](https://img.shields.io/badge/🎬-B站观看演示视频-FF6699?style=for-the-badge&logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1yW28B3ETN)
 
-**👉 [点击观看完整演示视频](https://www.bilibili.com/video/BV1yW28B3ETN)**
-
-<details>
-<summary>📺 视频预览（点击展开）</summary>
-
-<div align="center">
-
-<a href="https://www.bilibili.com/video/BV1yW28B3ETN" target="_blank">
-  <img src="https://i0.hdslb.com/bfs/archive/cover.jpg" alt="演示视频" width="800" style="border-radius: 8px;">
-</a>
-
-</div>
-
-</details>
+**👉 [点击这里观看完整演示视频](https://www.bilibili.com/video/BV1yW28B3ETN)**
 
 </div>
 
