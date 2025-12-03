@@ -1,14 +1,8 @@
 # 🎬 ComfyUI AE Animation
 
-> ⚠️ **预览版说明**：本项目目前为预览版本，功能正在持续开发中。后续会持续增加新功能和优化体验，欢迎反馈和建议！
-
----
-
 ## 🎥 演示视频
 
 <div align="center">
-
-https://github.com/user-attachments/assets/demo.mp4
 
 <video width="800" controls>
   <source src="docs/demo.mp4" type="video/mp4">
@@ -16,6 +10,10 @@ https://github.com/user-attachments/assets/demo.mp4
 </video>
 
 </div>
+
+---
+
+> ⚠️ **预览版说明**：本项目目前为预览版本，功能正在持续开发中。后续会持续增加新功能和优化体验，欢迎反馈和建议！
 
 ---
 
