@@ -6,7 +6,6 @@
 
 <video width="800" controls>
   <source src="https://raw.githubusercontent.com/wallen0322/ComfyUI-AE-Animation/main/demo.mp4" type="video/mp4">
-  您的浏览器不支持视频播放。
 </video>
 
 </div>
