@@ -4,9 +4,22 @@
 
 <div align="center">
 
-[![演示视频 - 点击观看](https://img.shields.io/badge/🎬-观看演示视频-blue?style=for-the-badge)](https://github.com/wallen0322/ComfyUI-AE-Animation/raw/main/demo.mp4)
+[![演示视频](https://img.shields.io/badge/🎬-B站观看演示视频-red?style=for-the-badge)](https://www.bilibili.com/video/BV1yW28B3ETN)
 
-**点击上方按钮或 [直接观看视频](https://github.com/wallen0322/ComfyUI-AE-Animation/raw/main/demo.mp4)**
+**👉 [点击观看完整演示视频](https://www.bilibili.com/video/BV1yW28B3ETN)**
+
+<details>
+<summary>📺 视频预览（点击展开）</summary>
+
+<div align="center">
+
+<a href="https://www.bilibili.com/video/BV1yW28B3ETN" target="_blank">
+  <img src="https://i0.hdslb.com/bfs/archive/cover.jpg" alt="演示视频" width="800" style="border-radius: 8px;">
+</a>
+
+</div>
+
+</details>
 
 </div>
 
