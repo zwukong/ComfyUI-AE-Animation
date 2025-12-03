@@ -4,6 +4,21 @@
 
 ---
 
+## 🎥 演示视频
+
+<div align="center">
+
+https://github.com/user-attachments/assets/demo.mp4
+
+<video width="800" controls>
+  <source src="docs/demo.mp4" type="video/mp4">
+  您的浏览器不支持视频播放。
+</video>
+
+</div>
+
+---
+
 ## 🙏 特别鸣谢
 
 特别感谢 [**Terry Jia (jtydhr88)**](https://github.com/jtydhr88) 在项目开发过程中给予的宝贵帮助和关键思路指导！
