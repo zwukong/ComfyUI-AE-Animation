@@ -79,18 +79,8 @@ async function openAETimelineForNode(node) {
   });
 
   const container = document.createElement("div");
-  container.className = "ae-vue-timeline-root";
-  Object.assign(container.style, {
-    width: "100%",
-    height: "100%",
-    minWidth: "0",
-    minHeight: "0",
-    overflow: "hidden",
-    position: "relative",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-  });
+  // Vue 组件会创建 .ae-timeline-root 作为根元素，这里不需要额外样式
+  container.style.cssText = "width: 100%; height: 100%;";
 
   dialog.appendChild(container);
   document.body.appendChild(dialog);

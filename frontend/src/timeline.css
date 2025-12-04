@@ -1,14 +1,4 @@
-.ae-vue-timeline-root {
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow: hidden !important;
-  position: relative !important;
-  box-sizing: border-box !important;
-}
+/* 统一使用 .ae-timeline-root，由 Vue 组件内部定义 */
 
 .ae-timeline-dialog {
   display: flex !important;
