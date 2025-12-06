@@ -71,20 +71,13 @@ let dragStartLayerY = 0
 let shiftKey = false
 let altKey = false
 
-const useGPU = ref(false) // 当前是否使用 GPU 渲染
-const gpuAvailable = ref(false) // GPU 是否可用
-const gpuEnabled = ref(false) // 用户是否启用 GPU（默认关闭，需要手动开启）
-let gpuDevice: GPUDevice | null = null
-let gpuContext: GPUCanvasContext | null = null
-let gpuFormat: GPUTextureFormat = 'bgra8unorm'
+const useGPU = ref(false)
+const gpuAvailable = ref(false)
+const gpuEnabled = ref(false)
 
 let renderPending = false
 let ctx: CanvasRenderingContext2D | null = null
 const imageCache = new Map<string, HTMLImageElement>()
-let gpuSampler: GPUSampler | null = null
-let gpuPipeline: GPURenderPipeline | null = null
-let gpuUniformBuffer: GPUBuffer | null = null
-let gpuBindGroupLayout: GPUBindGroupLayout | null = null
 
 // Panorama remap cache to avoid per-frame heavy trig
 const panoCache: {
@@ -140,129 +133,15 @@ onUnmounted(() => {
 
 
 async function initWebGPU() {
-  try {
-    if (!navigator.gpu) {
-      console.log('[Timeline GPU] WebGPU not supported, using Canvas 2D')
-      useGPU.value = false
-      return
-    }
-
-    const adapter = await navigator.gpu.requestAdapter()
-    if (!adapter) {
-      console.log('[Timeline GPU] No GPU adapter found, using Canvas 2D')
-      useGPU.value = false
-      return
-    }
-
-    gpuDevice = await adapter.requestDevice()
-    if (!gpuDevice || !gpuCanvasRef.value) {
-      console.log('[Timeline GPU] Failed to get GPU device, using Canvas 2D')
-      useGPU.value = false
-      return
-    }
-
-    gpuContext = gpuCanvasRef.value.getContext('webgpu')
-    if (!gpuContext) {
-      console.log('[Timeline GPU] Failed to get WebGPU context, using Canvas 2D')
-      useGPU.value = false
-      return
-    }
-
-    gpuFormat = navigator.gpu.getPreferredCanvasFormat()
-    gpuContext.configure({
-      device: gpuDevice,
-      format: gpuFormat,
-      alphaMode: 'premultiplied'
-    })
-
-    // Create sampler
-    gpuSampler = gpuDevice.createSampler({
-      magFilter: 'linear',
-      minFilter: 'linear'
-    })
-
-    // Create uniform buffer
-    gpuUniformBuffer = gpuDevice.createBuffer({
-      size: 80, // 64 bytes for mat4 + 4 bytes for opacity + padding
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    })
-
-    // Create bind group layout
-    gpuBindGroupLayout = gpuDevice.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } }
-      ]
-    })
-
-    gpuPipeline = createGPUPipeline()
-    if (!gpuPipeline) {
-      console.log('[Timeline GPU] Failed to create pipeline, using Canvas 2D')
-      useGPU.value = false
-      return
-    }
-
+  if (gpuCanvasRef.value) {
     gpuAvailable.value = true
-    useGPU.value = gpuEnabled.value // 只有用户启用时才使用 GPU
-    console.log('[Timeline GPU] WebGPU initialized successfully, enabled:', gpuEnabled.value)
-  } catch (e) {
-    console.warn('[Timeline GPU] WebGPU init failed:', e)
-    useGPU.value = false
+    console.log('[Timeline GPU] GPU acceleration available (using Canvas 2D with offscreen rendering)')
   }
 }
 
-function createGPUPipeline(): GPURenderPipeline | null {
-  if (!gpuDevice || !gpuBindGroupLayout) return null
 
-  const shaderCode = `
-    struct Uniforms {
-      transform: mat4x4<f32>,
-      opacity: f32,
-    }
-    @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-    @group(0) @binding(1) var texSampler: sampler;
-    @group(0) @binding(2) var tex: texture_2d<f32>;
-
-    struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
-
-    @vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
-      var p = array<vec2f, 6>(vec2f(-1,-1), vec2f(1,-1), vec2f(1,1), vec2f(-1,-1), vec2f(1,1), vec2f(-1,1));
-      var u = array<vec2f, 6>(vec2f(0,1), vec2f(1,1), vec2f(1,0), vec2f(0,1), vec2f(1,0), vec2f(0,0));
-      var o: VSOut;
-      o.pos = uniforms.transform * vec4f(p[i], 0, 1);
-      o.uv = u[i];
-      return o;
-    }
-
-    @fragment fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
-      let c = textureSample(tex, texSampler, uv);
-      return vec4f(c.rgb, c.a * uniforms.opacity);
-    }
-  `
-
-  return gpuDevice.createRenderPipeline({
-    layout: gpuDevice.createPipelineLayout({ bindGroupLayouts: [gpuBindGroupLayout] }),
-    vertex: { module: gpuDevice.createShaderModule({ code: shaderCode }), entryPoint: 'vs' },
-    fragment: {
-      module: gpuDevice.createShaderModule({ code: shaderCode }),
-      entryPoint: 'fs',
-      targets: [{
-        format: gpuFormat,
-        blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
-        }
-      }]
-    },
-    primitive: { topology: 'triangle-list' }
-  })
-}
 
 function destroyGPU() {
-  gpuUniformBuffer?.destroy()
-  gpuDevice = null
-  gpuContext = null
   offscreenCanvas = null
   offscreenCtx = null
 }
@@ -270,9 +149,9 @@ function destroyGPU() {
 function scheduleRender() {
   if (renderPending) return
   renderPending = true
-  requestAnimationFrame(async () => {
+  requestAnimationFrame(() => {
     renderPending = false
-    await render()
+    render()
   })
 }
 
@@ -306,85 +185,42 @@ function getOffscreenCanvas(): { canvas: HTMLCanvasElement, ctx: CanvasRendering
     offscreenCanvas = document.createElement('canvas')
     offscreenCanvas.width = w
     offscreenCanvas.height = h
-    offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false })
+    offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false, desynchronized: true })
+    console.log('[GPU] Created offscreen canvas:', w, 'x', h)
   }
   
-  if (!offscreenCtx) return null
+  if (!offscreenCtx) {
+    console.error('[GPU] Failed to get offscreen canvas context')
+    return null
+  }
   return { canvas: offscreenCanvas, ctx: offscreenCtx }
 }
 
-async function renderGPU() {
-  if (!gpuDevice || !gpuContext || !gpuPipeline || !gpuSampler || !gpuUniformBuffer || !gpuBindGroupLayout) {
+function renderGPU() {
+  if (!gpuCanvasRef.value) {
+    console.warn('[GPU] gpuCanvasRef not available, falling back to Canvas2D')
     renderCanvas2D()
     return
   }
 
   const offscreen = getOffscreenCanvas()
   if (!offscreen) {
+    console.warn('[GPU] Failed to create offscreen canvas, falling back to Canvas2D')
     renderCanvas2D()
     return
   }
 
   renderToContext(offscreen.ctx)
   
-  try {
-    const imageBitmap = await createImageBitmap(offscreen.canvas)
-    
-    const frameTexture = gpuDevice.createTexture({
-      size: [store.project.width, store.project.height],
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-    })
-
-    gpuDevice.queue.copyExternalImageToTexture(
-      { source: imageBitmap },
-      { texture: frameTexture },
-      [store.project.width, store.project.height]
-    )
-
-    const encoder = gpuDevice.createCommandEncoder()
-    const textureView = gpuContext.getCurrentTexture().createView()
-
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: textureView,
-        loadOp: 'clear',
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        storeOp: 'store'
-      }]
-    })
-
-    pass.setPipeline(gpuPipeline)
-
-    const identityMatrix = new Float32Array([
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1
-    ])
-    const uniformData = new Float32Array(20)
-    uniformData.set(identityMatrix)
-    uniformData[16] = 1.0
-    gpuDevice.queue.writeBuffer(gpuUniformBuffer, 0, uniformData)
-
-    const bindGroup = gpuDevice.createBindGroup({
-      layout: gpuBindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: gpuUniformBuffer } },
-        { binding: 1, resource: gpuSampler },
-        { binding: 2, resource: frameTexture.createView() }
-      ]
-    })
-
-    pass.setBindGroup(0, bindGroup)
-    pass.draw(6)
-    pass.end()
-    gpuDevice.queue.submit([encoder.finish()])
-    frameTexture.destroy()
-  } catch (e) {
-    console.warn('[Timeline GPU] Render error:', e)
+  const gpuCtx = gpuCanvasRef.value.getContext('2d', { alpha: false, desynchronized: true })
+  if (!gpuCtx) {
+    console.warn('[GPU] Failed to get GPU canvas context, falling back to Canvas2D')
     renderCanvas2D()
+    return
   }
+
+  gpuCtx.clearRect(0, 0, store.project.width, store.project.height)
+  gpuCtx.drawImage(offscreen.canvas, 0, 0)
 }
 
 function renderToContext(targetCtx: CanvasRenderingContext2D) {
@@ -531,12 +367,12 @@ function getLayerProps(layer: any) {
   }
 }
 
-async function render() {
+function render() {
   const shouldUseGPU = gpuAvailable.value && gpuEnabled.value
   useGPU.value = shouldUseGPU
   
   if (shouldUseGPU) {
-    await renderGPU()
+    renderGPU()
   } else {
     renderCanvas2D()
   }
@@ -602,7 +438,9 @@ function drawMaskOverlayOnCtx(iCtx: CanvasRenderingContext2D) {
   iCtx.save()
   iCtx.globalAlpha = 0.5
   iCtx.translate(centerX + finalX, centerY + finalY)
-  iCtx.rotate((props.rotation * Math.PI) / 180)
+  
+  const actualRotation = props.rotationZ !== undefined && props.rotationZ !== 0 ? props.rotationZ : props.rotation
+  iCtx.rotate((actualRotation * Math.PI) / 180)
   iCtx.scale(finalScale, finalScale)
   
   iCtx.fillStyle = 'rgba(255, 0, 0, 0.3)'
@@ -671,7 +509,9 @@ function drawSelectionBorder(iCtx: CanvasRenderingContext2D) {
   
   iCtx.save()
   iCtx.translate(centerX + finalX, centerY + finalY)
-  iCtx.rotate((props.rotation * Math.PI) / 180)
+  
+  const actualRotation = props.rotationZ !== undefined && props.rotationZ !== 0 ? props.rotationZ : props.rotation
+  iCtx.rotate((actualRotation * Math.PI) / 180)
   iCtx.scale(finalScale, finalScale)
   
   iCtx.strokeStyle = '#3a7bc8'
