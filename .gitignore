@@ -59,4 +59,4 @@ backup/js_legacy/
 # Local only files (keep locally but don't track in git)
 QUICK_FIX.md
 tmp_script.txt
-布局参考.html
+布局参考.html.kiro/
