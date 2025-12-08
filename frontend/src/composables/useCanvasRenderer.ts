@@ -287,6 +287,11 @@ export function useCanvasRenderer(
 
 
     try {
+      // 确保GPU渲染器的尺寸与项目尺寸一致
+      const projW = store.project.width
+      const projH = store.project.height
+      gpuRenderer.resizeRenderTargets(projW, projH)
+      
       const targetView = gpuContext.getCurrentTexture().createView()
       gpuRenderer.renderFrame(store.layers, store.currentTime, camera, targetView)
     } catch (error) {
