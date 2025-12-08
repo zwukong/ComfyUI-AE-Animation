@@ -223,28 +223,52 @@
         <div class="layers-panel">
           <div class="layers-header">Layers ({{ store.layers.length }})</div>
 <div class="layers-list" @scroll="onLayersScroll">
-            <div class="layer-item camera-layer">
-              <span class="expand-icon"> </span>
+            <div class="layer-item camera-layer" @click="selectCamera()">
+              <span class="expand-icon" @click.stop="toggleCameraExpand()">
+                {{ cameraExpanded ? 'v' : '>' }}
+              </span>
               <span class="layer-type camera">C</span>
               <span class="layer-name">Camera</span>
             </div>
-            <div
-              v-for="(layer, i) in store.layers"
-              :key="layer.id"
-              class="layer-item"
-              :class="{active: i === store.currentLayerIndex}"
-              @click="store.selectLayer(i)"
-            >
-              <span class="expand-icon" @click.stop="toggleLayerExpand(i)">
-                {{ expandedLayers.has(i) ? 'v' : '>' }}
-              </span>
-              <span class="layer-type" :class="layer.type">{{ layer.type === 'background' ? 'B' : 'F' }}</span>
-              <span class="layer-name">{{ displayLayerName(layer, i) }}</span>
-              <span class="layer-btns">
-                <span class="vis-icon" @click.stop="toggleVis(layer)" :class="{off: layer.hidden}">eye</span>
-                <span class="del-icon" @click.stop="store.removeLayer(i)">x</span>
-              </span>
-            </div>
+            <!-- 摄像机属性子行 -->
+            <template v-if="cameraExpanded">
+              <div 
+                v-for="prop in projectAnimProps" 
+                :key="prop.key"
+                class="layer-item prop-item camera-prop-item"
+              >
+                <span class="prop-indent"></span>
+                <span class="prop-label-small">{{ prop.label }}</span>
+              </div>
+            </template>
+            <template v-for="(layer, i) in store.layers" :key="layer.id">
+              <div
+                class="layer-item"
+                :class="{active: i === store.currentLayerIndex}"
+                @click="store.selectLayer(i)"
+              >
+                <span class="expand-icon" @click.stop="toggleLayerExpand(i)">
+                  {{ expandedLayers.has(i) ? 'v' : '>' }}
+                </span>
+                <span class="layer-type" :class="layer.type">{{ layer.type === 'background' ? 'B' : 'F' }}</span>
+                <span class="layer-name">{{ displayLayerName(layer, i) }}</span>
+                <span class="layer-btns">
+                  <span class="vis-icon" @click.stop="toggleVis(layer)" :class="{off: layer.hidden}">eye</span>
+                  <span class="del-icon" @click.stop="store.removeLayer(i)">x</span>
+                </span>
+              </div>
+              <!-- 图层属性子行 -->
+              <template v-if="expandedLayers.has(i)">
+                <div 
+                  v-for="prop in animatableProps" 
+                  :key="`layer-${i}-${prop.key}`"
+                  class="layer-item prop-item"
+                >
+                  <span class="prop-indent"></span>
+                  <span class="prop-label-small">{{ prop.label }}</span>
+                </div>
+              </template>
+            </template>
           </div>
         </div>
 
@@ -268,18 +292,41 @@
                 @click="selectCamera()"
               >
                 <div class="track-bar camera" :style="{ width: (projectDuration * pixelsPerSecond) + 'px' }">
-                  <div
-                    v-for="kf in getProjectKeyframesFlat()"
-                    :key="`cam-${kf.prop}-${kf.time}`"
-                    class="mini-kf camera"
-                    :style="{ left: (kf.time * pixelsPerSecond) + 'px' }"
-                    :title="`Camera ${kf.prop} @ ${kf.time.toFixed(2)}s`"
-                    @mousedown.stop="onCameraKeyframeDragStart($event, kf)"
-                    @contextmenu.prevent="deleteCameraKeyframeAt(kf.prop, kf.time)"
-                  ></div>
+                  <template v-if="!cameraExpanded">
+                    <div
+                      v-for="kf in getProjectKeyframesFlat()"
+                      :key="`cam-${kf.prop}-${kf.time}`"
+                      class="mini-kf camera"
+                      :style="{ left: (kf.time * pixelsPerSecond) + 'px' }"
+                      :title="`Camera ${kf.prop} @ ${kf.time.toFixed(2)}s`"
+                      @mousedown.stop="onCameraKeyframeDragStart($event, kf)"
+                      @contextmenu.prevent="deleteCameraKeyframeAt(kf.prop, kf.time)"
+                    ></div>
+                  </template>
                   <span class="track-label">Camera</span>
                 </div>
               </div>
+              <!-- 摄像机属性子轨道 -->
+              <template v-if="cameraExpanded">
+                <div
+                  v-for="prop in projectAnimProps"
+                  :key="prop.key"
+                  class="prop-track-row camera-prop-track"
+                  @click="selectCamera()"
+                >
+                  <div class="prop-track" @dblclick.stop="addCameraKeyframeAt($event, prop.key)">
+                    <div
+                      v-for="kf in getCameraPropKeyframes(prop.key)"
+                      :key="kf.time"
+                      class="keyframe-dot camera"
+                      :style="{ left: (kf.time * pixelsPerSecond) + 'px' }"
+                      :title="`${prop.label}: ${kf.value.toFixed(2)} @ ${kf.time.toFixed(2)}s`"
+                      @mousedown.stop="onCameraPropKeyframeDragStart($event, prop.key, kf)"
+                      @contextmenu.prevent="deleteCameraKeyframeAt(prop.key, kf.time)"
+                    ></div>
+                  </div>
+                </div>
+              </template>
               <template v-for="(layer, layerIdx) in store.layers" :key="layer.id">
                 <div
                   class="track-row"
@@ -512,6 +559,7 @@ let isDraggingKeyframe = false
 let draggingKeyframeData: { layerIdx: number, prop: string, originalTime: number } | null = null
 
 const expandedLayers = ref<Set<number>>(new Set([0]))
+const cameraExpanded = ref(false)
 const selectedKeyframe = ref<{ layerIdx: number, prop: string, time: number } | null>(null)
 
 const animatableProps = [
@@ -634,7 +682,7 @@ function getAllLayerKeyframes(layer: any) {
 
 function getProjectKeyframesFlat() {
   const result: { time: number, prop: string, value: number }[] = []
-  const kfMap: Record<string, any[]> = (store as any).projectKeyframes?.value || (store as any).projectKeyframes || {}
+  const kfMap = store.projectKeyframes
   projectAnimProps.forEach(p => {
     const arr = kfMap[p.key]
     if (Array.isArray(arr)) {
@@ -660,6 +708,52 @@ function toggleLayerExpand(layerIdx: number) {
   } else {
     expandedLayers.value.add(layerIdx)
   }
+}
+
+function toggleCameraExpand() {
+  cameraExpanded.value = !cameraExpanded.value
+}
+
+function getCameraPropKeyframes(prop: string) {
+  const kfMap = store.projectKeyframes
+  const arr = kfMap[prop]
+  if (!Array.isArray(arr)) return []
+  return arr.map(kf => ({ time: kf.time, value: kf.value ?? 0 }))
+}
+
+function addCameraKeyframeAt(e: MouseEvent, prop: string) {
+  const time = getTimeFromEvent(e)
+  const currentValue = (store.project as any)[prop] ?? 0
+  store.setProjectKeyframe(prop, time, currentValue)
+}
+
+function onCameraPropKeyframeDragStart(e: MouseEvent, prop: string, kf: { time: number, value: number }) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  
+  const startX = e.clientX
+  const startTime = kf.time
+  const value = kf.value
+  
+  const onMouseMove = (moveE: MouseEvent) => {
+    const deltaX = moveE.clientX - startX
+    const deltaTime = deltaX / pixelsPerSecond.value
+    const newTime = Math.max(0, Math.min(projectDuration.value, startTime + deltaTime))
+    
+    // 删除旧的，添加新的
+    store.deleteProjectKeyframe(prop, kf.time)
+    store.setProjectKeyframe(prop, newTime, value)
+    kf.time = newTime
+    store.setCurrentTime(newTime)
+  }
+  
+  const onMouseUp = () => {
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+  }
+  
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
 }
 
 function toggleVis(layer: any) {
@@ -1924,6 +2018,34 @@ onBeforeUnmount(() => {
 
 .layer-item:hover .layer-btns { opacity: 1 !important; }
 
+/* 属性子行样式 */
+.layer-item.prop-item {
+  height: 24px !important;
+  background: #1a1a1c !important;
+  padding-left: 24px !important;
+}
+
+.layer-item.prop-item:hover {
+  background: #252528 !important;
+}
+
+.layer-item.camera-prop-item {
+  background: #1c1c20 !important;
+}
+
+.layer-item.camera-prop-item:hover {
+  background: #252530 !important;
+}
+
+.prop-indent {
+  width: 16px !important;
+}
+
+.prop-label-small {
+  font-size: 10px !important;
+  color: #8e8e93 !important;
+}
+
 .vis-icon, .del-icon {
   font-size: 11px !important;
   cursor: pointer !important;
@@ -2057,6 +2179,23 @@ onBeforeUnmount(() => {
 }
 
 .prop-track-row.active { background: rgba(10,132,255,0.05) !important; }
+
+.prop-track-row.camera-prop-track {
+  background: rgba(251,188,4,0.05) !important;
+}
+
+.prop-track-row.camera-prop-track:hover {
+  background: rgba(251,188,4,0.1) !important;
+}
+
+.keyframe-dot.camera {
+  background: #fbbc04 !important;
+  border-color: rgba(0,0,0,0.4) !important;
+}
+
+.keyframe-dot.camera:hover {
+  background: #ffd54f !important;
+}
 
 .prop-track {
   flex: 1 !important;
